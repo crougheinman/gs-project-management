@@ -1,0 +1,88 @@
+import { createClient } from "@/lib/supabase/server";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { Badge } from "@/components/ui/badge";
+import { InviteForm } from "./invite-form";
+
+type MemberRow = {
+  user_id: string;
+  role: string;
+  profiles: { full_name: string | null; email: string } | null;
+};
+
+export default async function MembersPage({
+  params,
+}: {
+  params: Promise<{ workspaceId: string }>;
+}) {
+  const { workspaceId } = await params;
+  const supabase = await createClient();
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  const [{ data: members }, { data: myMembership }] = await Promise.all([
+    supabase
+      .from("workspace_members")
+      .select("user_id, role, profiles(full_name, email)")
+      .eq("workspace_id", workspaceId)
+      .order("created_at"),
+    supabase
+      .from("workspace_members")
+      .select("role")
+      .eq("workspace_id", workspaceId)
+      .eq("user_id", user!.id)
+      .single(),
+  ]);
+
+  const isAdmin = myMembership?.role === "admin";
+  const rows = (members ?? []) as unknown as MemberRow[];
+
+  return (
+    <div className="mx-auto max-w-2xl p-6">
+      <h1 className="text-2xl font-semibold text-foreground">Members</h1>
+      <p className="mt-1 text-sm text-muted-foreground">
+        Manage who has access to this workspace.
+      </p>
+
+      <div className="mt-6 overflow-x-auto rounded-lg border border-border">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Name</TableHead>
+              <TableHead>Email</TableHead>
+              <TableHead>Role</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {rows.map((member) => (
+              <TableRow key={member.user_id}>
+                <TableCell>{member.profiles?.full_name || "—"}</TableCell>
+                <TableCell>{member.profiles?.email}</TableCell>
+                <TableCell>
+                  <Badge variant="secondary">{member.role}</Badge>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </div>
+
+      {isAdmin ? (
+        <div className="mt-8">
+          <h2 className="text-sm font-medium text-foreground">Invite a member</h2>
+          <div className="mt-3">
+            <InviteForm workspaceId={workspaceId} />
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
