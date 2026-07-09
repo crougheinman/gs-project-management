@@ -48,3 +48,62 @@ export type TaskTag = {
   task_id: string;
   tag_id: string;
 };
+
+// Tiptap document JSON (loosely typed - we only walk it)
+export type TiptapDoc = {
+  type: string;
+  content?: TiptapNode[];
+};
+
+export type TiptapNode = {
+  type: string;
+  text?: string;
+  attrs?: Record<string, unknown>;
+  marks?: { type: string; attrs?: Record<string, unknown> }[];
+  content?: TiptapNode[];
+};
+
+export type Comment = {
+  id: string;
+  task_id: string;
+  author_id: string;
+  body: TiptapDoc;
+  created_at: string;
+  author?: Pick<Profile, "id" | "full_name" | "email"> | null;
+};
+
+export type Attachment = {
+  id: string;
+  task_id: string | null;
+  comment_id: string | null;
+  uploaded_by: string | null;
+  storage_path: string;
+  file_name: string;
+  file_size: number | null;
+  mime_type: string | null;
+  created_at: string;
+};
+
+export type ActivityEntry = {
+  id: string;
+  project_id: string | null;
+  task_id: string | null;
+  actor_id: string | null;
+  action: string;
+  metadata: Record<string, unknown> | null;
+  created_at: string;
+  actor?: Pick<Profile, "id" | "full_name" | "email"> | null;
+};
+
+export type Notification = {
+  id: string;
+  recipient_id: string;
+  actor_id: string | null;
+  type: "assigned" | "mentioned" | "comment_added" | "added_to_project";
+  project_id: string | null;
+  task_id: string | null;
+  comment_id: string | null;
+  message: string;
+  read: boolean;
+  created_at: string;
+};

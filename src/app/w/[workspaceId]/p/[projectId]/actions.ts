@@ -2,6 +2,8 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { extractMentionIds, logActivity, notify } from "@/lib/activity";
+import type { TiptapDoc } from "@/lib/types";
 
 // All actions rely on RLS as the enforcement layer; errors surface as
 // thrown messages the client toasts.
@@ -93,7 +95,9 @@ export async function createTask(
   }
   const { data: last } = await positionQuery.maybeSingle();
 
+  const taskId = crypto.randomUUID();
   const { error } = await supabase.from("tasks").insert({
+    id: taskId,
     project_id: projectId,
     section_id: input.parentTaskId ? null : (input.sectionId ?? null),
     parent_task_id: input.parentTaskId ?? null,
@@ -102,6 +106,18 @@ export async function createTask(
     created_by: user.id,
   });
   if (error) throw new Error(error.message);
+
+  await logActivity(supabase, {
+    workspaceId,
+    projectId,
+    taskId,
+    actorId: user.id,
+    action: "task.created",
+    entityType: "task",
+    entityId: taskId,
+    metadata: { name },
+  });
+
   revalidatePath(projectPath(workspaceId, projectId));
 }
 
@@ -133,6 +149,115 @@ export async function updateTask(
   }
 
   const { error } = await supabase.from("tasks").update(update).eq("id", taskId);
+  if (error) throw new Error(error.message);
+
+  // Activity + notifications for the changes worth narrating.
+  const { data: task } = await supabase
+    .from("tasks")
+    .select("name")
+    .eq("id", taskId)
+    .maybeSingle();
+  const taskName = task?.name ?? "a task";
+
+  if (patch.completed !== undefined) {
+    await logActivity(supabase, {
+      workspaceId,
+      projectId,
+      taskId,
+      actorId: user.id,
+      action: patch.completed ? "task.completed" : "task.uncompleted",
+      entityType: "task",
+      entityId: taskId,
+      metadata: { name: taskName },
+    });
+  }
+
+  if (patch.assignee_id !== undefined) {
+    await logActivity(supabase, {
+      workspaceId,
+      projectId,
+      taskId,
+      actorId: user.id,
+      action: patch.assignee_id ? "task.assigned" : "task.unassigned",
+      entityType: "task",
+      entityId: taskId,
+      metadata: { name: taskName, assignee_id: patch.assignee_id },
+    });
+    if (patch.assignee_id) {
+      await notify(supabase, {
+        recipientIds: [patch.assignee_id],
+        actorId: user.id,
+        type: "assigned",
+        projectId,
+        taskId,
+        message: `assigned you "${taskName}"`,
+      });
+    }
+  }
+
+  if (patch.due_date !== undefined) {
+    await logActivity(supabase, {
+      workspaceId,
+      projectId,
+      taskId,
+      actorId: user.id,
+      action: "task.due_date_changed",
+      entityType: "task",
+      entityId: taskId,
+      metadata: { name: taskName, due_date: patch.due_date },
+    });
+  }
+
+  revalidatePath(projectPath(workspaceId, projectId));
+}
+
+// Board drag-and-drop: move a task to a section at a spot between two
+// neighbors. Fractional positioning; rebalances the section when the gap
+// between neighbors gets too small to split.
+export async function moveTask(
+  workspaceId: string,
+  projectId: string,
+  taskId: string,
+  target: { sectionId: string | null; prevTaskId?: string | null; nextTaskId?: string | null },
+) {
+  const { supabase } = await getClient();
+
+  async function positionOf(id: string | null | undefined) {
+    if (!id) return null;
+    const { data } = await supabase.from("tasks").select("position").eq("id", id).maybeSingle();
+    return data?.position ?? null;
+  }
+
+  let prev = await positionOf(target.prevTaskId);
+  let next = await positionOf(target.nextTaskId);
+
+  const tooTight = prev !== null && next !== null && next - prev < 1e-6;
+  if (tooTight) {
+    // Rebalance: renumber the target section's tasks to evenly spaced values.
+    const { data: rows } = await supabase
+      .from("tasks")
+      .select("id")
+      .eq("project_id", projectId)
+      .is("parent_task_id", null)
+      .filter("section_id", target.sectionId ? "eq" : "is", target.sectionId)
+      .order("position");
+    for (const [i, row] of (rows ?? []).entries()) {
+      await supabase.from("tasks").update({ position: (i + 1) * 1000 }).eq("id", row.id);
+    }
+    prev = await positionOf(target.prevTaskId);
+    next = await positionOf(target.nextTaskId);
+  }
+
+  let position: number;
+  if (prev !== null && next !== null) position = (prev + next) / 2;
+  else if (prev !== null) position = prev + 1000;
+  else if (next !== null) position = next / 2;
+  else position = 1000;
+
+  const { error } = await supabase
+    .from("tasks")
+    .update({ section_id: target.sectionId, position })
+    .eq("id", taskId);
   if (error) throw new Error(error.message);
   revalidatePath(projectPath(workspaceId, projectId));
 }
@@ -167,6 +292,138 @@ export async function createTag(
   if (error) throw new Error(error.message);
   revalidatePath(projectPath(workspaceId, projectId));
   return tagId;
+}
+
+// ---------------------------------------------------------------------------
+// Comments
+// ---------------------------------------------------------------------------
+
+// body travels as a JSON string: Next's server-action serializer was
+// observed dropping nested `attrs` objects from the Tiptap doc, which
+// silently killed mentions.
+export async function createComment(
+  workspaceId: string,
+  projectId: string,
+  taskId: string,
+  bodyJson: string,
+) {
+  const { supabase, user } = await getClient();
+  const body = JSON.parse(bodyJson) as TiptapDoc;
+
+  const commentId = crypto.randomUUID();
+  const { error } = await supabase.from("comments").insert({
+    id: commentId,
+    task_id: taskId,
+    author_id: user.id,
+    body,
+  });
+  if (error) throw new Error(error.message);
+
+  const mentionIds = extractMentionIds(body);
+  if (mentionIds.length > 0) {
+    await supabase.from("comment_mentions").insert(
+      mentionIds.map((mentioned_user_id) => ({ comment_id: commentId, mentioned_user_id })),
+    );
+  }
+
+  const { data: task } = await supabase
+    .from("tasks")
+    .select("name, assignee_id, created_by")
+    .eq("id", taskId)
+    .maybeSingle();
+  const taskName = task?.name ?? "a task";
+
+  await logActivity(supabase, {
+    workspaceId,
+    projectId,
+    taskId,
+    actorId: user.id,
+    action: "comment.created",
+    entityType: "comment",
+    entityId: commentId,
+    metadata: { name: taskName },
+  });
+
+  if (mentionIds.length > 0) {
+    await notify(supabase, {
+      recipientIds: mentionIds,
+      actorId: user.id,
+      type: "mentioned",
+      projectId,
+      taskId,
+      commentId,
+      message: `mentioned you on "${taskName}"`,
+    });
+  }
+  await notify(supabase, {
+    // assignee + task creator, minus anyone already notified via mention
+    recipientIds: [task?.assignee_id, task?.created_by].filter(
+      (id) => !id || !mentionIds.includes(id),
+    ),
+    actorId: user.id,
+    type: "comment_added",
+    projectId,
+    taskId,
+    commentId,
+    message: `commented on "${taskName}"`,
+  });
+
+  revalidatePath(projectPath(workspaceId, projectId));
+}
+
+export async function deleteComment(workspaceId: string, projectId: string, commentId: string) {
+  const { supabase } = await getClient();
+  const { error } = await supabase.from("comments").delete().eq("id", commentId);
+  if (error) throw new Error(error.message);
+  revalidatePath(projectPath(workspaceId, projectId));
+}
+
+// ---------------------------------------------------------------------------
+// Attachments (file itself is uploaded client-side; this records metadata)
+// ---------------------------------------------------------------------------
+
+export async function addAttachmentRecord(
+  workspaceId: string,
+  projectId: string,
+  taskId: string,
+  file: { storagePath: string; fileName: string; fileSize: number; mimeType: string },
+) {
+  const { supabase, user } = await getClient();
+
+  const { error } = await supabase.from("attachments").insert({
+    task_id: taskId,
+    uploaded_by: user.id,
+    storage_path: file.storagePath,
+    file_name: file.fileName,
+    file_size: file.fileSize,
+    mime_type: file.mimeType,
+  });
+  if (error) throw new Error(error.message);
+
+  await logActivity(supabase, {
+    workspaceId,
+    projectId,
+    taskId,
+    actorId: user.id,
+    action: "attachment.added",
+    entityType: "attachment",
+    metadata: { file_name: file.fileName },
+  });
+
+  revalidatePath(projectPath(workspaceId, projectId));
+}
+
+export async function deleteAttachment(
+  workspaceId: string,
+  projectId: string,
+  attachmentId: string,
+  storagePath: string,
+) {
+  const { supabase } = await getClient();
+  const { error } = await supabase.from("attachments").delete().eq("id", attachmentId);
+  if (error) throw new Error(error.message);
+  await supabase.storage.from("attachments").remove([storagePath]);
+  revalidatePath(projectPath(workspaceId, projectId));
 }
 
 export async function setTaskTag(

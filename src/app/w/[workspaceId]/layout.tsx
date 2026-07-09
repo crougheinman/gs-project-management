@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { Button } from "@/components/ui/button";
+import { NotificationBell } from "@/components/notification-bell";
 import { signOut } from "./actions";
 
 export default async function WorkspaceLayout({
@@ -14,15 +15,21 @@ export default async function WorkspaceLayout({
   const { workspaceId } = await params;
   const supabase = await createClient();
 
-  const { data: workspace } = await supabase
-    .from("workspaces")
-    .select("id, name")
-    .eq("id", workspaceId)
-    .single();
+  const [{ data: workspace }, userRes] = await Promise.all([
+    supabase.from("workspaces").select("id, name").eq("id", workspaceId).single(),
+    supabase.auth.getUser(),
+  ]);
 
   if (!workspace) {
     notFound();
   }
+
+  const userId = userRes.data.user!.id;
+  const { count: unread } = await supabase
+    .from("notifications")
+    .select("id", { count: "exact", head: true })
+    .eq("recipient_id", userId)
+    .eq("read", false);
 
   return (
     <div className="flex min-h-full flex-col">
@@ -44,6 +51,11 @@ export default async function WorkspaceLayout({
             >
               Members
             </Link>
+            <NotificationBell
+              workspaceId={workspaceId}
+              userId={userId}
+              initialUnread={unread ?? 0}
+            />
             <form action={signOut}>
               <Button type="submit" variant="ghost" size="sm">
                 Sign out

@@ -8,6 +8,7 @@ const TABS = [
   { slug: "list", label: "List" },
   { slug: "board", label: "Board" },
   { slug: "calendar", label: "Calendar" },
+  { slug: "activity", label: "Activity" },
   { slug: "settings", label: "Settings" },
 ];
 

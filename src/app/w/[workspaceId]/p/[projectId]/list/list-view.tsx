@@ -14,7 +14,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import type { Profile, Section, Tag, Task, TaskTag } from "@/lib/types";
+import type { Profile, Section, Task } from "@/lib/types";
+import type { ProjectPageData } from "@/lib/tasks/page-data";
 import { cn } from "@/lib/utils";
 import {
   createSection,
@@ -23,17 +24,12 @@ import {
   renameSection,
   updateTask,
 } from "../actions";
-import { TaskPanel } from "./task-panel";
+import { TaskPanel } from "@/components/task-panel";
 
 type ListViewProps = {
   workspaceId: string;
   projectId: string;
-  sections: Section[];
-  tasks: Task[];
-  taskTags: TaskTag[];
-  tags: Tag[];
-  members: Profile[];
-};
+} & ProjectPageData;
 
 const UNASSIGNED = "__unassigned__";
 
@@ -121,6 +117,10 @@ export function ListView(props: ListViewProps) {
           taskTags={props.taskTags}
           tags={props.tags}
           members={members}
+          comments={props.comments}
+          attachments={props.attachments}
+          activity={props.activity}
+          currentUserId={props.currentUserId}
           onClose={closePanel}
           onOpenTask={openPanel}
         />

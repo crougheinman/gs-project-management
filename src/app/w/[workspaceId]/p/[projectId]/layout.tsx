@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { RealtimeRefresher } from "@/components/realtime-refresher";
 import { ProjectTabs } from "./project-tabs";
 
 export default async function ProjectLayout({
@@ -28,6 +29,7 @@ export default async function ProjectLayout({
         <h1 className="text-xl font-semibold text-foreground">{project.name}</h1>
       </div>
       <ProjectTabs base={base} />
+      <RealtimeRefresher projectId={projectId} />
       <div className="flex-1 pt-4">{children}</div>
     </div>
   );
