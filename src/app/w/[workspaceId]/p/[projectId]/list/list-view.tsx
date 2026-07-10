@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import { ChevronRight, Plus, Trash2 } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -43,8 +44,36 @@ export function ListView(props: ListViewProps) {
   const openTaskId = searchParams.get("task");
   const openTask = openTaskId ? tasks.find((t) => t.id === openTaskId) : undefined;
 
-  const topLevel = tasks.filter((t) => !t.parent_task_id);
+  const [filterAssignee, setFilterAssignee] = useState<string>("all");
+  const [filterTag, setFilterTag] = useState<string>("all");
+  const [hideCompleted, setHideCompleted] = useState(false);
+
+  const tagsByTask = new Map<string, Set<string>>();
+  for (const tt of props.taskTags) {
+    const set = tagsByTask.get(tt.task_id) ?? new Set();
+    set.add(tt.tag_id);
+    tagsByTask.set(tt.task_id, set);
+  }
+
+  function matchesFilter(t: Task) {
+    if (filterAssignee === "unassigned" && t.assignee_id) return false;
+    if (filterAssignee !== "all" && filterAssignee !== "unassigned" && t.assignee_id !== filterAssignee)
+      return false;
+    if (filterTag !== "all" && !tagsByTask.get(t.id)?.has(filterTag)) return false;
+    if (hideCompleted && t.completed) return false;
+    return true;
+  }
+
+  const topLevel = tasks.filter((t) => !t.parent_task_id).filter(matchesFilter);
   const noSection = topLevel.filter((t) => !t.section_id);
+
+  // A task is blocked if any of its blockers is still incomplete.
+  const completedById = new Map(tasks.map((t) => [t.id, t.completed]));
+  const blockedIds = new Set(
+    props.dependencies
+      .filter((d) => completedById.get(d.depends_on_task_id) === false)
+      .map((d) => d.task_id),
+  );
 
   function run(action: () => Promise<unknown>) {
     startTransition(async () => {
@@ -67,6 +96,43 @@ export function ListView(props: ListViewProps) {
   return (
     <div className="flex gap-6">
       <div className="min-w-0 flex-1 pb-16">
+        <div className="mb-3 flex flex-wrap items-center gap-2">
+          <Select value={filterAssignee} onValueChange={(v) => setFilterAssignee(v ?? "all")}>
+            <SelectTrigger aria-label="Filter by assignee" className="h-8 w-40 text-xs">
+              <SelectValue placeholder="Assignee" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All assignees</SelectItem>
+              <SelectItem value="unassigned">Unassigned</SelectItem>
+              {members.map((m) => (
+                <SelectItem key={m.id} value={m.id}>
+                  {m.full_name || m.email}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select value={filterTag} onValueChange={(v) => setFilterTag(v ?? "all")}>
+            <SelectTrigger aria-label="Filter by tag" className="h-8 w-36 text-xs">
+              <SelectValue placeholder="Tag" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All tags</SelectItem>
+              {props.tags.map((tag) => (
+                <SelectItem key={tag.id} value={tag.id}>
+                  {tag.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <label className="flex cursor-pointer items-center gap-2 text-xs text-muted-foreground">
+            <Checkbox
+              checked={hideCompleted}
+              onCheckedChange={(c) => setHideCompleted(c === true)}
+              aria-label="Hide completed tasks"
+            />
+            Hide completed
+          </label>
+        </div>
         <div className="overflow-x-auto">
           <div className="min-w-[640px]">
             {/* column headers */}
@@ -83,6 +149,7 @@ export function ListView(props: ListViewProps) {
                 section={section}
                 tasks={topLevel.filter((t) => t.section_id === section.id)}
                 members={members}
+                blockedIds={blockedIds}
                 onOpen={openPanel}
                 run={run}
                 workspaceId={workspaceId}
@@ -95,6 +162,7 @@ export function ListView(props: ListViewProps) {
                 section={null}
                 tasks={noSection}
                 members={members}
+                blockedIds={blockedIds}
                 onOpen={openPanel}
                 run={run}
                 workspaceId={workspaceId}
@@ -120,6 +188,9 @@ export function ListView(props: ListViewProps) {
           comments={props.comments}
           attachments={props.attachments}
           activity={props.activity}
+          customFields={props.customFields}
+          customFieldValues={props.customFieldValues}
+          dependencies={props.dependencies}
           currentUserId={props.currentUserId}
           onClose={closePanel}
           onOpenTask={openPanel}
@@ -135,6 +206,7 @@ function SectionGroup({
   section,
   tasks,
   members,
+  blockedIds,
   onOpen,
   run,
   workspaceId,
@@ -143,6 +215,7 @@ function SectionGroup({
   section: Section | null;
   tasks: Task[];
   members: Profile[];
+  blockedIds: Set<string>;
   onOpen: (taskId: string) => void;
   run: (action: () => Promise<unknown>) => void;
   workspaceId: string;
@@ -190,6 +263,7 @@ function SectionGroup({
             key={task.id}
             task={task}
             members={members}
+            blocked={blockedIds.has(task.id)}
             onOpen={onOpen}
             run={run}
             workspaceId={workspaceId}
@@ -215,6 +289,7 @@ function SectionGroup({
 function TaskRow({
   task,
   members,
+  blocked,
   onOpen,
   run,
   workspaceId,
@@ -222,6 +297,7 @@ function TaskRow({
 }: {
   task: Task;
   members: Profile[];
+  blocked: boolean;
   onOpen: (taskId: string) => void;
   run: (action: () => Promise<unknown>) => void;
   workspaceId: string;
@@ -254,6 +330,11 @@ function TaskRow({
           }}
           onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
         />
+        {blocked && (
+          <Badge variant="outline" className="shrink-0 border-destructive/40 text-destructive">
+            Blocked
+          </Badge>
+        )}
       </div>
 
       <Select

@@ -14,8 +14,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import type { Profile } from "@/lib/types";
+import type { CustomField, Profile } from "@/lib/types";
 import type { ProjectMemberRow } from "./page";
+import { CustomFieldsConfig } from "./custom-fields-config";
 import {
   addProjectMember,
   archiveProject,
@@ -32,12 +33,14 @@ export function SettingsView({
   projectName,
   members,
   workspaceMembers,
+  customFields,
 }: {
   workspaceId: string;
   projectId: string;
   projectName: string;
   members: ProjectMemberRow[];
   workspaceMembers: Pick<Profile, "id" | "full_name" | "email">[];
+  customFields: CustomField[];
 }) {
   const [, startTransition] = useTransition();
   const [addUserId, setAddUserId] = useState<string>("");
@@ -174,6 +177,10 @@ export function SettingsView({
           </Button>
         </div>
       )}
+
+      <Separator className="my-6" />
+
+      <CustomFieldsConfig workspaceId={workspaceId} projectId={projectId} fields={customFields} />
 
       <Separator className="my-6" />
 

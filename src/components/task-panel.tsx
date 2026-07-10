@@ -28,9 +28,12 @@ import type {
   ActivityEntry,
   Attachment,
   Comment,
+  CustomField,
+  CustomFieldValue,
   Profile,
   Tag,
   Task,
+  TaskDependency,
   TaskTag,
   TiptapDoc,
 } from "@/lib/types";
@@ -38,17 +41,21 @@ import { cn } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
 import {
   addAttachmentRecord,
+  addDependency,
   createComment,
   createTag,
   createTask,
   deleteAttachment,
   deleteComment,
   deleteTask,
+  removeDependency,
+  setCustomFieldValue,
   setTaskTag,
   updateTask,
 } from "@/app/w/[workspaceId]/p/[projectId]/actions";
 import { CommentEditor } from "@/components/comment-editor";
 import { CommentBody } from "@/components/comment-body";
+import { CustomFieldInput } from "@/components/custom-field-input";
 
 const UNASSIGNED = "__unassigned__";
 
@@ -74,6 +81,9 @@ export function TaskPanel({
   comments,
   attachments,
   activity,
+  customFields,
+  customFieldValues,
+  dependencies,
   currentUserId,
   onClose,
   onOpenTask,
@@ -88,6 +98,9 @@ export function TaskPanel({
   comments: Comment[];
   attachments: Attachment[];
   activity: ActivityEntry[];
+  customFields: CustomField[];
+  customFieldValues: CustomFieldValue[];
+  dependencies: TaskDependency[];
   currentUserId: string | null;
   onClose: () => void;
   onOpenTask: (taskId: string) => void;
@@ -105,6 +118,18 @@ export function TaskPanel({
   );
   const taskComments = comments.filter((c) => c.task_id === task.id);
   const taskAttachments = attachments.filter((a) => a.task_id === task.id);
+  const valueFor = (fieldId: string) =>
+    customFieldValues.find((v) => v.custom_field_id === fieldId && v.task_id === task.id);
+  // Blockers of this task, and which are still incomplete.
+  const blockerDeps = dependencies.filter((d) => d.task_id === task.id);
+  const blockedByDeps = dependencies.filter((d) => d.depends_on_task_id === task.id);
+  const taskById = new Map(allTasks.map((t) => [t.id, t]));
+  const addableBlockers = allTasks.filter(
+    (t) =>
+      t.id !== task.id &&
+      !t.parent_task_id &&
+      !blockerDeps.some((d) => d.depends_on_task_id === t.id),
+  );
   const taskActivity = activity
     .filter((a) => a.task_id === task.id && a.action !== "comment.created")
     .slice(0, 15)
@@ -322,7 +347,96 @@ export function TaskPanel({
             />
           </div>
         </div>
+
+        {customFields.map((field) => (
+          <div key={field.id} className="grid grid-cols-[90px_1fr] items-center gap-2">
+            <span className="truncate text-muted-foreground">{field.name}</span>
+            <CustomFieldInput
+              field={field}
+              value={valueFor(field.id)}
+              members={members}
+              onChange={(patch) =>
+                run(() => setCustomFieldValue(workspaceId, projectId, field.id, task.id, patch))
+              }
+            />
+          </div>
+        ))}
       </div>
+
+      <Separator className="my-4" />
+
+      <div className="flex items-center justify-between">
+        <h3 className="text-sm font-medium text-foreground">Blocked by</h3>
+        <Select
+          value=""
+          onValueChange={(v) => v && run(() => addDependency(workspaceId, projectId, task.id, v))}
+        >
+          <SelectTrigger aria-label="Add blocker" className="h-7 w-40 text-xs">
+            <SelectValue placeholder="Add blocker" />
+          </SelectTrigger>
+          <SelectContent>
+            {addableBlockers.map((t) => (
+              <SelectItem key={t.id} value={t.id}>
+                {t.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+      {blockerDeps.length > 0 && (
+        <ul className="mt-1 flex flex-col gap-1">
+          {blockerDeps.map((dep) => {
+            const blocker = taskById.get(dep.depends_on_task_id);
+            if (!blocker) return null;
+            return (
+              <li key={dep.id} className="group flex items-center gap-2 text-sm">
+                <Checkbox checked={blocker.completed} disabled aria-hidden="true" />
+                <button
+                  type="button"
+                  className={cn(
+                    "min-w-0 flex-1 cursor-pointer truncate text-left underline-offset-4 hover:underline",
+                    blocker.completed ? "text-muted-foreground line-through" : "text-foreground",
+                  )}
+                  onClick={() => onOpenTask(blocker.id)}
+                >
+                  {blocker.name}
+                </button>
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label={`Remove blocker ${blocker.name}`}
+                  className="opacity-0 transition-opacity duration-150 group-hover:opacity-100 focus-visible:opacity-100"
+                  onClick={() => run(() => removeDependency(workspaceId, projectId, dep.id))}
+                >
+                  <X aria-hidden="true" />
+                </Button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      {blockedByDeps.length > 0 && (
+        <div className="mt-2">
+          <h3 className="text-sm font-medium text-foreground">Blocking</h3>
+          <ul className="mt-1 flex flex-col gap-1">
+            {blockedByDeps.map((dep) => {
+              const blocked = taskById.get(dep.task_id);
+              if (!blocked) return null;
+              return (
+                <li key={dep.id} className="text-sm">
+                  <button
+                    type="button"
+                    className="cursor-pointer truncate text-left text-foreground underline-offset-4 hover:underline"
+                    onClick={() => onOpenTask(blocked.id)}
+                  >
+                    {blocked.name}
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      )}
 
       <Separator className="my-4" />
 

@@ -40,3 +40,15 @@ export async function inviteMember(workspaceId: string, formData: FormData) {
 
   revalidatePath(`/w/${workspaceId}/settings/members`);
 }
+
+export async function updateMemberRole(workspaceId: string, userId: string, role: string) {
+  const supabase = await createClient();
+  // RLS also enforces admin-only, but check here for a friendly error.
+  const { error } = await supabase
+    .from("workspace_members")
+    .update({ role })
+    .eq("workspace_id", workspaceId)
+    .eq("user_id", userId);
+  if (error) throw new Error(error.message);
+  revalidatePath(`/w/${workspaceId}/settings/members`);
+}

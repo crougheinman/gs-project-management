@@ -1,5 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
-import type { Profile } from "@/lib/types";
+import type { CustomField, Profile } from "@/lib/types";
 import { SettingsView } from "./settings-view";
 
 export type ProjectMemberRow = {
@@ -16,7 +16,7 @@ export default async function ProjectSettingsPage({
   const { workspaceId, projectId } = await params;
   const supabase = await createClient();
 
-  const [{ data: project }, membersRes, workspaceMembersRes] = await Promise.all([
+  const [{ data: project }, membersRes, workspaceMembersRes, customFieldsRes] = await Promise.all([
     supabase.from("projects").select("id, name, visibility").eq("id", projectId).single(),
     supabase
       .from("project_members")
@@ -27,12 +27,18 @@ export default async function ProjectSettingsPage({
       .from("workspace_members")
       .select("profiles(id, full_name, email)")
       .eq("workspace_id", workspaceId),
+    supabase
+      .from("custom_fields")
+      .select("id, project_id, name, field_type, options, position")
+      .eq("project_id", projectId)
+      .order("position"),
   ]);
 
   const members = (membersRes.data ?? []) as unknown as ProjectMemberRow[];
   const workspaceMembers = (workspaceMembersRes.data ?? [])
     .map((r) => r.profiles as unknown as Pick<Profile, "id" | "full_name" | "email">)
     .filter(Boolean);
+  const customFields = (customFieldsRes.data ?? []) as unknown as CustomField[];
 
   return (
     <SettingsView
@@ -41,6 +47,7 @@ export default async function ProjectSettingsPage({
       projectName={project?.name ?? ""}
       members={members}
       workspaceMembers={workspaceMembers}
+      customFields={customFields}
     />
   );
 }

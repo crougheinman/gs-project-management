@@ -205,6 +205,9 @@ export function BoardView(props: BoardViewProps) {
           comments={props.comments}
           attachments={props.attachments}
           activity={props.activity}
+          customFields={props.customFields}
+          customFieldValues={props.customFieldValues}
+          dependencies={props.dependencies}
           currentUserId={props.currentUserId}
           onClose={() => router.push(pathname, { scroll: false })}
           onOpenTask={openPanel}

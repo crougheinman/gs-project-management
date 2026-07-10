@@ -40,6 +40,12 @@ export default async function WorkspaceLayout({
           </Link>
           <nav className="flex items-center gap-4 text-sm">
             <Link
+              href={`/w/${workspaceId}/search`}
+              className="text-muted-foreground hover:text-foreground"
+            >
+              Search
+            </Link>
+            <Link
               href={`/w/${workspaceId}/my-tasks`}
               className="text-muted-foreground hover:text-foreground"
             >

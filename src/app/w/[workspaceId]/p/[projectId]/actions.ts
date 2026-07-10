@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { extractMentionIds, logActivity, notify } from "@/lib/activity";
-import type { TiptapDoc } from "@/lib/types";
+import type { CustomFieldType, SelectOption, TiptapDoc } from "@/lib/types";
 
 // All actions rely on RLS as the enforcement layer; errors surface as
 // thrown messages the client toasts.
@@ -437,6 +437,131 @@ export async function setTaskTag(
   const { error } = assigned
     ? await supabase.from("task_tags").insert({ task_id: taskId, tag_id: tagId })
     : await supabase.from("task_tags").delete().eq("task_id", taskId).eq("tag_id", tagId);
+  if (error) throw new Error(error.message);
+  revalidatePath(projectPath(workspaceId, projectId));
+}
+
+// ---------------------------------------------------------------------------
+// Custom fields
+// ---------------------------------------------------------------------------
+
+export async function createCustomField(
+  workspaceId: string,
+  projectId: string,
+  input: { name: string; fieldType: CustomFieldType; options?: SelectOption[] },
+) {
+  const { supabase } = await getClient();
+  const name = input.name.trim();
+  if (!name) throw new Error("Field name is required");
+
+  const { data: last } = await supabase
+    .from("custom_fields")
+    .select("position")
+    .eq("project_id", projectId)
+    .order("position", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  const { error } = await supabase.from("custom_fields").insert({
+    project_id: projectId,
+    name,
+    field_type: input.fieldType,
+    options: input.options ?? [],
+    position: (last?.position ?? 0) + 1000,
+  });
+  if (error) throw new Error(error.message);
+  revalidatePath(projectPath(workspaceId, projectId));
+}
+
+export async function deleteCustomField(
+  workspaceId: string,
+  projectId: string,
+  fieldId: string,
+) {
+  const { supabase } = await getClient();
+  const { error } = await supabase.from("custom_fields").delete().eq("id", fieldId);
+  if (error) throw new Error(error.message);
+  revalidatePath(projectPath(workspaceId, projectId));
+}
+
+// Upsert a task's value for one field. `patch` uses the typed value column
+// matching the field type; caller passes exactly one populated key.
+export async function setCustomFieldValue(
+  workspaceId: string,
+  projectId: string,
+  fieldId: string,
+  taskId: string,
+  patch: {
+    value_text?: string | null;
+    value_number?: number | null;
+    value_date?: string | null;
+    value_boolean?: boolean | null;
+    value_option_ids?: string[] | null;
+    value_user_id?: string | null;
+  },
+) {
+  const { supabase } = await getClient();
+  const { error } = await supabase
+    .from("custom_field_values")
+    .upsert(
+      { custom_field_id: fieldId, task_id: taskId, ...patch },
+      { onConflict: "custom_field_id,task_id" },
+    );
+  if (error) throw new Error(error.message);
+  revalidatePath(projectPath(workspaceId, projectId));
+}
+
+// ---------------------------------------------------------------------------
+// Task dependencies (task is blocked by dependsOnTaskId)
+// ---------------------------------------------------------------------------
+
+export async function addDependency(
+  workspaceId: string,
+  projectId: string,
+  taskId: string,
+  dependsOnTaskId: string,
+) {
+  const { supabase } = await getClient();
+  if (taskId === dependsOnTaskId) throw new Error("A task can't depend on itself");
+
+  // Cycle check: dependsOnTaskId must not (transitively) already depend on
+  // taskId. Walk the blocker graph starting from dependsOnTaskId.
+  const { data: edges } = await supabase
+    .from("task_dependencies")
+    .select("task_id, depends_on_task_id, tasks!task_dependencies_task_id_fkey!inner(project_id)")
+    .eq("tasks.project_id", projectId);
+
+  const blockers = new Map<string, string[]>();
+  for (const e of (edges ?? []) as { task_id: string; depends_on_task_id: string }[]) {
+    const list = blockers.get(e.task_id) ?? [];
+    list.push(e.depends_on_task_id);
+    blockers.set(e.task_id, list);
+  }
+  // does dependsOnTaskId reach taskId through its own blockers?
+  const seen = new Set<string>();
+  const stack = [dependsOnTaskId];
+  while (stack.length) {
+    const cur = stack.pop()!;
+    if (cur === taskId) throw new Error("That would create a circular dependency");
+    if (seen.has(cur)) continue;
+    seen.add(cur);
+    stack.push(...(blockers.get(cur) ?? []));
+  }
+
+  const { error } = await supabase
+    .from("task_dependencies")
+    .insert({ task_id: taskId, depends_on_task_id: dependsOnTaskId });
+  if (error) throw new Error(error.message);
+  revalidatePath(projectPath(workspaceId, projectId));
+}
+
+export async function removeDependency(
+  workspaceId: string,
+  projectId: string,
+  dependencyId: string,
+) {
+  const { supabase } = await getClient();
+  const { error } = await supabase.from("task_dependencies").delete().eq("id", dependencyId);
   if (error) throw new Error(error.message);
   revalidatePath(projectPath(workspaceId, projectId));
 }

@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import {
   Table,
@@ -9,6 +10,7 @@ import {
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { InviteForm } from "./invite-form";
+import { RoleSelect } from "./role-select";
 
 type MemberRow = {
   user_id: string;
@@ -47,7 +49,15 @@ export default async function MembersPage({
 
   return (
     <div className="mx-auto max-w-2xl p-6">
-      <h1 className="text-2xl font-semibold text-foreground">Members</h1>
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-semibold text-foreground">Members</h1>
+        <Link
+          href={`/w/${workspaceId}/settings/tags`}
+          className="text-sm text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+        >
+          Manage tags
+        </Link>
+      </div>
       <p className="mt-1 text-sm text-muted-foreground">
         Manage who has access to this workspace.
       </p>
@@ -67,7 +77,15 @@ export default async function MembersPage({
                 <TableCell>{member.profiles?.full_name || "—"}</TableCell>
                 <TableCell>{member.profiles?.email}</TableCell>
                 <TableCell>
-                  <Badge variant="secondary">{member.role}</Badge>
+                  {isAdmin && member.user_id !== user!.id ? (
+                    <RoleSelect
+                      workspaceId={workspaceId}
+                      userId={member.user_id}
+                      role={member.role}
+                    />
+                  ) : (
+                    <Badge variant="secondary">{member.role}</Badge>
+                  )}
                 </TableCell>
               </TableRow>
             ))}
