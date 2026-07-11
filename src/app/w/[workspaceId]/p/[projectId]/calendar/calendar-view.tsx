@@ -15,6 +15,14 @@ type CalendarViewProps = {
   projectId: string;
 } & ProjectPageData;
 
+// Shift a YYYY-MM-DD date string by whole days. Done entirely in UTC so the
+// local timezone offset can't shift the calendar date across midnight.
+function shiftDate(dateStr: string, days: number) {
+  const d = new Date(`${dateStr}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
 export function CalendarView(props: CalendarViewProps) {
   const { workspaceId, projectId, tasks, members } = props;
   const router = useRouter();
@@ -25,19 +33,47 @@ export function CalendarView(props: CalendarViewProps) {
   const openTaskId = searchParams.get("task");
   const openTask = openTaskId ? tasks.find((t) => t.id === openTaskId) : undefined;
 
+  const taskById = useMemo(() => new Map(tasks.map((t) => [t.id, t])), [tasks]);
+
+  // A task shows if it has either date. With both, it spans start..due as a
+  // bar (FullCalendar all-day `end` is exclusive, so +1 day covers the due
+  // day). With one date, it's a single-day event.
   const events = useMemo(
     () =>
       tasks
-        .filter((t) => t.due_date)
-        .map((t) => ({
-          id: t.id,
-          title: t.name,
-          start: t.due_date!,
-          allDay: true,
-          classNames: t.completed ? ["opacity-50"] : [],
-        })),
+        .filter((t) => t.due_date || t.start_date)
+        .map((t) => {
+          const start = t.start_date ?? t.due_date!;
+          const span = t.start_date && t.due_date && t.start_date !== t.due_date;
+          return {
+            id: t.id,
+            title: t.name,
+            start,
+            end: span ? shiftDate(t.due_date!, 1) : undefined,
+            allDay: true,
+            classNames: t.completed ? ["opacity-50"] : [],
+          };
+        }),
     [tasks],
   );
+
+  // Drag or resize -> recompute start_date/due_date from the event's span,
+  // preserving which fields the task actually uses.
+  function applyDateChange(id: string, startStr: string, endStr: string | null) {
+    const t = taskById.get(id);
+    // endStr is exclusive; the last covered day is endStr - 1.
+    const lastDay = endStr ? shiftDate(endStr, -1) : startStr;
+    if (t?.start_date && t?.due_date) {
+      return updateTask(workspaceId, projectId, id, {
+        start_date: startStr,
+        due_date: lastDay,
+      });
+    }
+    if (t?.start_date && !t?.due_date) {
+      return updateTask(workspaceId, projectId, id, { start_date: startStr });
+    }
+    return updateTask(workspaceId, projectId, id, { due_date: startStr });
+  }
 
   function run(action: () => Promise<unknown>) {
     startTransition(async () => {
@@ -66,9 +102,20 @@ export function CalendarView(props: CalendarViewProps) {
           eventClick={(info) => openPanel(info.event.id)}
           eventDrop={(info) =>
             run(() =>
-              updateTask(workspaceId, projectId, info.event.id, {
-                due_date: info.event.startStr,
-              }),
+              applyDateChange(
+                info.event.id,
+                info.event.startStr,
+                info.event.end ? info.event.endStr : null,
+              ),
+            )
+          }
+          eventResize={(info) =>
+            run(() =>
+              applyDateChange(
+                info.event.id,
+                info.event.startStr,
+                info.event.end ? info.event.endStr : null,
+              ),
             )
           }
         />

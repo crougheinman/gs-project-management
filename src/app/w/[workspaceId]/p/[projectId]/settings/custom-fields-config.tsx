@@ -126,7 +126,11 @@ export function CustomFieldsConfig({
           <Label htmlFor="cf-type" className="text-xs">
             Type
           </Label>
-          <Select value={fieldType} onValueChange={(v) => v && setFieldType(v as CustomFieldType)}>
+          <Select
+            value={fieldType}
+            items={Object.fromEntries(FIELD_TYPES.map((t) => [t.value, t.label]))}
+            onValueChange={(v) => v && setFieldType(v as CustomFieldType)}
+          >
             <SelectTrigger id="cf-type" className="h-8 w-40 text-xs">
               <SelectValue />
             </SelectTrigger>

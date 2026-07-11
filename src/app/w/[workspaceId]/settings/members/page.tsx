@@ -11,6 +11,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { InviteForm } from "./invite-form";
 import { RoleSelect } from "./role-select";
+import { MemberActions } from "./member-actions";
 
 type MemberRow = {
   user_id: string;
@@ -69,33 +70,52 @@ export default async function MembersPage({
               <TableHead>Name</TableHead>
               <TableHead>Email</TableHead>
               <TableHead>Role</TableHead>
+              {isAdmin && <TableHead className="text-right">Actions</TableHead>}
             </TableRow>
           </TableHeader>
           <TableBody>
-            {rows.map((member) => (
-              <TableRow key={member.user_id}>
-                <TableCell>{member.profiles?.full_name || "—"}</TableCell>
-                <TableCell>{member.profiles?.email}</TableCell>
-                <TableCell>
-                  {isAdmin && member.user_id !== user!.id ? (
-                    <RoleSelect
-                      workspaceId={workspaceId}
-                      userId={member.user_id}
-                      role={member.role}
-                    />
-                  ) : (
-                    <Badge variant="secondary">{member.role}</Badge>
+            {rows.map((member) => {
+              const canManage = isAdmin && member.user_id !== user!.id;
+              return (
+                <TableRow key={member.user_id}>
+                  <TableCell>{member.profiles?.full_name || "—"}</TableCell>
+                  <TableCell>{member.profiles?.email}</TableCell>
+                  <TableCell>
+                    {canManage ? (
+                      <RoleSelect
+                        workspaceId={workspaceId}
+                        userId={member.user_id}
+                        role={member.role}
+                      />
+                    ) : (
+                      <Badge variant="secondary">{member.role}</Badge>
+                    )}
+                  </TableCell>
+                  {isAdmin && (
+                    <TableCell className="text-right">
+                      {canManage && (
+                        <MemberActions
+                          workspaceId={workspaceId}
+                          userId={member.user_id}
+                          email={member.profiles?.email ?? ""}
+                        />
+                      )}
+                    </TableCell>
                   )}
-                </TableCell>
-              </TableRow>
-            ))}
+                </TableRow>
+              );
+            })}
           </TableBody>
         </Table>
       </div>
 
       {isAdmin ? (
         <div className="mt-8">
-          <h2 className="text-sm font-medium text-foreground">Invite a member</h2>
+          <h2 className="text-sm font-medium text-foreground">Add a member</h2>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Already-registered emails are added immediately. For a new email, set a password to
+            create the account instantly, or leave it blank to send an invite.
+          </p>
           <div className="mt-3">
             <InviteForm workspaceId={workspaceId} />
           </div>

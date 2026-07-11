@@ -266,6 +266,10 @@ export function TaskPanel({
           <span className="text-muted-foreground">Assignee</span>
           <Select
             value={task.assignee_id ?? UNASSIGNED}
+            items={{
+              [UNASSIGNED]: "Unassigned",
+              ...Object.fromEntries(members.map((m) => [m.id, m.full_name || m.email])),
+            }}
             onValueChange={(v) =>
               run(() =>
                 updateTask(workspaceId, projectId, task.id, {
@@ -289,10 +293,29 @@ export function TaskPanel({
         </div>
 
         <div className="grid grid-cols-[90px_1fr] items-center gap-2">
+          <span className="text-muted-foreground">Start date</span>
+          <input
+            type="date"
+            value={task.start_date ?? ""}
+            max={task.due_date ?? undefined}
+            aria-label="Start date"
+            className="h-8 rounded-md border border-input bg-transparent px-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            onChange={(e) =>
+              run(() =>
+                updateTask(workspaceId, projectId, task.id, {
+                  start_date: e.target.value || null,
+                }),
+              )
+            }
+          />
+        </div>
+
+        <div className="grid grid-cols-[90px_1fr] items-center gap-2">
           <span className="text-muted-foreground">Due date</span>
           <input
             type="date"
             value={task.due_date ?? ""}
+            min={task.start_date ?? undefined}
             aria-label="Due date"
             className="h-8 rounded-md border border-input bg-transparent px-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
             onChange={(e) =>

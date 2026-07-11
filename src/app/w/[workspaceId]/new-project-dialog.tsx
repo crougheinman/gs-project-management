@@ -64,7 +64,11 @@ export function NewProjectDialog({ workspaceId }: { workspaceId: string }) {
             <input type="hidden" name="visibility" value={visibility} />
             <Select
               value={visibility}
-              onValueChange={(v) => setVisibility(v as "workspace" | "private")}
+              items={{
+                workspace: "Workspace — visible to all members",
+                private: "Private — members only",
+              }}
+              onValueChange={(v) => v && setVisibility(v as "workspace" | "private")}
             >
               <SelectTrigger id="project-visibility">
                 <SelectValue />

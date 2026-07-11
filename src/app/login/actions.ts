@@ -16,22 +16,3 @@ export async function signIn(formData: FormData) {
 
   redirect("/");
 }
-
-export async function signUp(formData: FormData) {
-  const email = formData.get("email") as string;
-  const password = formData.get("password") as string;
-  const fullName = formData.get("fullName") as string;
-
-  const supabase = await createClient();
-  const { error } = await supabase.auth.signUp({
-    email,
-    password,
-    options: { data: { full_name: fullName } },
-  });
-
-  if (error) {
-    redirect(`/login?mode=signup&error=${encodeURIComponent(error.message)}`);
-  }
-
-  redirect("/");
-}

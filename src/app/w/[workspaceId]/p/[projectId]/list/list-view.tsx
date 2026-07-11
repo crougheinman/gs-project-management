@@ -34,6 +34,15 @@ type ListViewProps = {
 
 const UNASSIGNED = "__unassigned__";
 
+// base-ui <Select.Value> only renders a label for the current value when the
+// Root is given an `items` map (value -> label). Without it, a programmatically
+// set value (like an assignee id loaded from the DB) shows the raw value.
+function memberItems(members: Profile[], extra?: Record<string, React.ReactNode>) {
+  const map: Record<string, React.ReactNode> = { ...extra };
+  for (const m of members) map[m.id] = m.full_name || m.email;
+  return map;
+}
+
 export function ListView(props: ListViewProps) {
   const { workspaceId, projectId, sections, tasks, members } = props;
   const router = useRouter();
@@ -97,7 +106,11 @@ export function ListView(props: ListViewProps) {
     <div className="flex gap-6">
       <div className="min-w-0 flex-1 pb-16">
         <div className="mb-3 flex flex-wrap items-center gap-2">
-          <Select value={filterAssignee} onValueChange={(v) => setFilterAssignee(v ?? "all")}>
+          <Select
+            value={filterAssignee}
+            items={memberItems(members, { all: "All assignees", unassigned: "Unassigned" })}
+            onValueChange={(v) => setFilterAssignee(v ?? "all")}
+          >
             <SelectTrigger aria-label="Filter by assignee" className="h-8 w-40 text-xs">
               <SelectValue placeholder="Assignee" />
             </SelectTrigger>
@@ -111,7 +124,14 @@ export function ListView(props: ListViewProps) {
               ))}
             </SelectContent>
           </Select>
-          <Select value={filterTag} onValueChange={(v) => setFilterTag(v ?? "all")}>
+          <Select
+            value={filterTag}
+            items={{
+              all: "All tags",
+              ...Object.fromEntries(props.tags.map((tag) => [tag.id, tag.name])),
+            }}
+            onValueChange={(v) => setFilterTag(v ?? "all")}
+          >
             <SelectTrigger aria-label="Filter by tag" className="h-8 w-36 text-xs">
               <SelectValue placeholder="Tag" />
             </SelectTrigger>
@@ -339,6 +359,7 @@ function TaskRow({
 
       <Select
         value={task.assignee_id ?? UNASSIGNED}
+        items={memberItems(members, { [UNASSIGNED]: "Unassigned" })}
         onValueChange={(v) =>
           run(() =>
             updateTask(workspaceId, projectId, task.id, {

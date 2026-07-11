@@ -75,6 +75,10 @@ export function CustomFieldInput({
       return (
         <Select
           value={value?.value_user_id ?? NONE}
+          items={{
+            [NONE]: "None",
+            ...Object.fromEntries(members.map((m) => [m.id, m.full_name || m.email])),
+          }}
           onValueChange={(v) => onChange({ value_user_id: v === NONE ? null : v })}
         >
           <SelectTrigger aria-label={field.name} className="h-8 text-sm">
@@ -95,6 +99,10 @@ export function CustomFieldInput({
       return (
         <Select
           value={current}
+          items={{
+            [NONE]: "None",
+            ...Object.fromEntries(field.options.map((o) => [o.id, o.label])),
+          }}
           onValueChange={(v) => onChange({ value_option_ids: !v || v === NONE ? null : [v] })}
         >
           <SelectTrigger aria-label={field.name} className="h-8 text-sm">
