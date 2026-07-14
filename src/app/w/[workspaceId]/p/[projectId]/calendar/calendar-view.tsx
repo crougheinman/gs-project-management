@@ -7,6 +7,7 @@ import FullCalendar from "@fullcalendar/react";
 import dayGridPlugin from "@fullcalendar/daygrid";
 import interactionPlugin from "@fullcalendar/interaction";
 import type { ProjectPageData } from "@/lib/tasks/page-data";
+import { shiftDate } from "@/lib/dates";
 import { updateTask } from "../actions";
 import { TaskPanel } from "@/components/task-panel";
 
@@ -14,14 +15,6 @@ type CalendarViewProps = {
   workspaceId: string;
   projectId: string;
 } & ProjectPageData;
-
-// Shift a YYYY-MM-DD date string by whole days. Done entirely in UTC so the
-// local timezone offset can't shift the calendar date across midnight.
-function shiftDate(dateStr: string, days: number) {
-  const d = new Date(`${dateStr}T00:00:00Z`);
-  d.setUTCDate(d.getUTCDate() + days);
-  return d.toISOString().slice(0, 10);
-}
 
 export function CalendarView(props: CalendarViewProps) {
   const { workspaceId, projectId, tasks, members } = props;
