@@ -14,7 +14,7 @@ export async function fetchProjectTasks(supabase: SupabaseClient, projectId: str
     supabase
       .from("tasks")
       .select(
-        "id, project_id, parent_task_id, section_id, assignee_id, name, description, completed, due_date, start_date, position, assignee:profiles!tasks_assignee_id_fkey(id, full_name, email)",
+        "id, project_id, parent_task_id, section_id, assignee_id, name, description, completed, due_date, start_date, position, task_type, assignee:profiles!tasks_assignee_id_fkey(id, full_name, email)",
       )
       .eq("project_id", projectId)
       .order("position"),

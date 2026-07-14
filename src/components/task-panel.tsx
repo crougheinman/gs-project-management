@@ -35,6 +35,7 @@ import type {
   Task,
   TaskDependency,
   TaskTag,
+  TaskType,
   TiptapDoc,
 } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -58,6 +59,45 @@ import { CommentBody } from "@/components/comment-body";
 import { CustomFieldInput } from "@/components/custom-field-input";
 
 const UNASSIGNED = "__unassigned__";
+const NO_PARENT = "__no_parent__";
+
+const TYPE_LABELS: Record<TaskType, string> = { epic: "Epic", task: "Task", subtask: "Subtask" };
+const TYPE_BADGE_CLASS: Record<TaskType, string> = {
+  epic: "border-violet-400/40 text-violet-600 dark:text-violet-400",
+  task: "",
+  subtask: "border-muted-foreground/30 text-muted-foreground",
+};
+
+// What type is allowed to be `current`'s parent, given current's own type.
+// null = current can't have a parent at all (Epic).
+function allowedParentType(current: TaskType): TaskType | null {
+  if (current === "task") return "epic";
+  if (current === "subtask") return "task";
+  return null;
+}
+
+// Eligible parents for `current`: right type, not itself, not a descendant
+// of itself (would create a cycle).
+function eligibleParents(current: Task, allTasks: Task[]): Task[] {
+  const wantType = allowedParentType(current.task_type);
+  if (!wantType) return [];
+
+  const descendantIds = new Set<string>();
+  const stack = [current.id];
+  while (stack.length) {
+    const id = stack.pop()!;
+    for (const t of allTasks) {
+      if (t.parent_task_id === id && !descendantIds.has(t.id)) {
+        descendantIds.add(t.id);
+        stack.push(t.id);
+      }
+    }
+  }
+
+  return allTasks.filter(
+    (t) => t.task_type === wantType && t.id !== current.id && !descendantIds.has(t.id),
+  );
+}
 
 const ACTIVITY_LABELS: Record<string, string> = {
   "task.created": "created this task",
@@ -113,6 +153,11 @@ export function TaskPanel({
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const subtasks = allTasks.filter((t) => t.parent_task_id === task.id);
+  const parentCandidates = eligibleParents(task, allTasks);
+  const canBeParentless = task.task_type === "task";
+  // What kind of child this task can create via the quick-add below.
+  const childKind: TaskType | null =
+    task.task_type === "epic" ? "task" : task.task_type === "task" ? "subtask" : null;
   const assignedTagIds = new Set(
     taskTags.filter((tt) => tt.task_id === task.id).map((tt) => tt.tag_id),
   );
@@ -239,12 +284,16 @@ export function TaskPanel({
         </div>
       </div>
 
+      <Badge variant="outline" className={cn("mt-3 w-fit", TYPE_BADGE_CLASS[task.task_type])}>
+        {TYPE_LABELS[task.task_type]}
+      </Badge>
+
       <textarea
         defaultValue={task.name}
         aria-label="Task name"
         rows={1}
         className={cn(
-          "mt-3 w-full resize-none rounded bg-transparent text-lg font-semibold outline-none focus-visible:ring-2 focus-visible:ring-ring",
+          "mt-2 w-full resize-none rounded bg-transparent text-lg font-semibold outline-none focus-visible:ring-2 focus-visible:ring-ring",
           task.completed && "text-muted-foreground line-through",
         )}
         onBlur={(e) => {
@@ -262,6 +311,58 @@ export function TaskPanel({
       />
 
       <div className="mt-4 flex flex-col gap-3 text-sm">
+        <div className="grid grid-cols-[90px_1fr] items-center gap-2">
+          <span className="text-muted-foreground">Type</span>
+          <Select
+            value={task.task_type}
+            items={TYPE_LABELS}
+            onValueChange={(v) =>
+              v && run(() => updateTask(workspaceId, projectId, task.id, { task_type: v as TaskType }))
+            }
+          >
+            <SelectTrigger aria-label="Type" className="h-8">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="epic">Epic</SelectItem>
+              <SelectItem value="task">Task</SelectItem>
+              <SelectItem value="subtask">Subtask</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
+        {task.task_type !== "epic" && (
+          <div className="grid grid-cols-[90px_1fr] items-center gap-2">
+            <span className="text-muted-foreground">Parent</span>
+            <Select
+              value={task.parent_task_id ?? NO_PARENT}
+              items={{
+                ...(canBeParentless ? { [NO_PARENT]: "No parent" } : {}),
+                ...Object.fromEntries(parentCandidates.map((t) => [t.id, t.name])),
+              }}
+              onValueChange={(v) =>
+                run(() =>
+                  updateTask(workspaceId, projectId, task.id, {
+                    parent_task_id: v === NO_PARENT ? null : v,
+                  }),
+                )
+              }
+            >
+              <SelectTrigger aria-label="Parent" className="h-8">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {canBeParentless && <SelectItem value={NO_PARENT}>No parent</SelectItem>}
+                {parentCandidates.map((t) => (
+                  <SelectItem key={t.id} value={t.id}>
+                    {t.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
+
         <div className="grid grid-cols-[90px_1fr] items-center gap-2">
           <span className="text-muted-foreground">Assignee</span>
           <Select
@@ -546,58 +647,70 @@ export function TaskPanel({
         </ul>
       )}
 
-      <Separator className="my-4" />
+      {childKind && (
+        <>
+          <Separator className="my-4" />
 
-      <h3 className="text-sm font-medium text-foreground">Subtasks</h3>
-      <ul className="mt-2 flex flex-col gap-1">
-        {subtasks.map((sub) => (
-          <li key={sub.id} className="group flex items-center gap-2">
-            <Checkbox
-              checked={sub.completed}
-              aria-label={sub.completed ? "Mark subtask incomplete" : "Mark subtask complete"}
-              onCheckedChange={(checked) =>
-                run(() =>
-                  updateTask(workspaceId, projectId, sub.id, { completed: checked === true }),
-                )
-              }
+          <h3 className="text-sm font-medium text-foreground">
+            {childKind === "task" ? "Tasks" : "Subtasks"}
+          </h3>
+          <ul className="mt-2 flex flex-col gap-1">
+            {subtasks.map((sub) => (
+              <li key={sub.id} className="group flex items-center gap-2">
+                <Checkbox
+                  checked={sub.completed}
+                  aria-label={sub.completed ? "Mark incomplete" : "Mark complete"}
+                  onCheckedChange={(checked) =>
+                    run(() =>
+                      updateTask(workspaceId, projectId, sub.id, { completed: checked === true }),
+                    )
+                  }
+                />
+                <span
+                  className={cn(
+                    "min-w-0 flex-1 truncate text-sm",
+                    sub.completed && "text-muted-foreground line-through",
+                  )}
+                >
+                  {sub.name}
+                </span>
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label={`Open ${sub.name}`}
+                  className="opacity-0 transition-opacity duration-150 group-hover:opacity-100 focus-visible:opacity-100"
+                  onClick={() => onOpenTask(sub.id)}
+                >
+                  <ChevronRight aria-hidden="true" />
+                </Button>
+              </li>
+            ))}
+          </ul>
+          <div className="mt-1 flex items-center gap-2">
+            <Plus className="size-4 text-muted-foreground" aria-hidden="true" />
+            <input
+              value={newSubtask}
+              placeholder={childKind === "task" ? "Add task" : "Add subtask"}
+              aria-label={childKind === "task" ? "Add task" : "Add subtask"}
+              className="flex-1 rounded bg-transparent py-1 text-sm outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring"
+              onChange={(e) => setNewSubtask(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && newSubtask.trim()) {
+                  const name = newSubtask.trim();
+                  setNewSubtask("");
+                  run(() =>
+                    createTask(workspaceId, projectId, {
+                      name,
+                      parentTaskId: task.id,
+                      taskType: childKind,
+                    }),
+                  );
+                }
+              }}
             />
-            <span
-              className={cn(
-                "min-w-0 flex-1 truncate text-sm",
-                sub.completed && "text-muted-foreground line-through",
-              )}
-            >
-              {sub.name}
-            </span>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              aria-label={`Open subtask ${sub.name}`}
-              className="opacity-0 transition-opacity duration-150 group-hover:opacity-100 focus-visible:opacity-100"
-              onClick={() => onOpenTask(sub.id)}
-            >
-              <ChevronRight aria-hidden="true" />
-            </Button>
-          </li>
-        ))}
-      </ul>
-      <div className="mt-1 flex items-center gap-2">
-        <Plus className="size-4 text-muted-foreground" aria-hidden="true" />
-        <input
-          value={newSubtask}
-          placeholder="Add subtask"
-          aria-label="Add subtask"
-          className="flex-1 rounded bg-transparent py-1 text-sm outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring"
-          onChange={(e) => setNewSubtask(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && newSubtask.trim()) {
-              const name = newSubtask.trim();
-              setNewSubtask("");
-              run(() => createTask(workspaceId, projectId, { name, parentTaskId: task.id }));
-            }
-          }}
-        />
-      </div>
+          </div>
+        </>
+      )}
 
       <Separator className="my-4" />
 

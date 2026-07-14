@@ -350,6 +350,14 @@ function TaskRow({
           }}
           onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
         />
+        {task.task_type === "epic" && (
+          <Badge
+            variant="outline"
+            className="shrink-0 border-violet-400/40 text-violet-600 dark:text-violet-400"
+          >
+            Epic
+          </Badge>
+        )}
         {blocked && (
           <Badge variant="outline" className="shrink-0 border-destructive/40 text-destructive">
             Blocked

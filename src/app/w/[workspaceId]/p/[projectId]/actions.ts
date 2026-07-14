@@ -3,7 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { extractMentionIds, logActivity, notify } from "@/lib/activity";
-import type { CustomFieldType, SelectOption, TiptapDoc } from "@/lib/types";
+import type { CustomFieldType, SelectOption, TaskType, TiptapDoc } from "@/lib/types";
+import type { SupabaseClient } from "@supabase/supabase-js";
 
 // All actions rely on RLS as the enforcement layer; errors surface as
 // thrown messages the client toasts.
@@ -19,6 +20,93 @@ async function getClient() {
 
 function projectPath(workspaceId: string, projectId: string) {
   return `/w/${workspaceId}/p/${projectId}`;
+}
+
+// ---------------------------------------------------------------------------
+// Task hierarchy guards (Epic / Task / Subtask) - app-layer validation, same
+// style as the dependency cycle check below. Not DB triggers: keeps the
+// rules readable and gives friendly error messages.
+// ---------------------------------------------------------------------------
+
+async function assertValidHierarchy(
+  supabase: SupabaseClient,
+  childType: TaskType,
+  parentTaskId: string | null,
+) {
+  if (childType === "epic" && parentTaskId) {
+    throw new Error("An Epic can't have a parent");
+  }
+  if (childType === "subtask" && !parentTaskId) {
+    throw new Error("A Subtask needs a parent task");
+  }
+  if (!parentTaskId) return;
+
+  const { data: parent } = await supabase
+    .from("tasks")
+    .select("id, task_type")
+    .eq("id", parentTaskId)
+    .maybeSingle();
+  if (!parent) throw new Error("Parent task not found");
+
+  if (childType === "task" && parent.task_type !== "epic") {
+    throw new Error("A Task can only be nested under an Epic");
+  }
+  if (childType === "subtask" && parent.task_type !== "task") {
+    throw new Error("A Subtask can only be nested under a Task");
+  }
+}
+
+// Changing a task's own type must stay compatible with children it already
+// has (e.g. an Epic with Task children can't become a Subtask - subtasks
+// can't have children at all).
+async function assertChildrenStillValid(
+  supabase: SupabaseClient,
+  taskId: string,
+  newType: TaskType,
+) {
+  const { data: children } = await supabase
+    .from("tasks")
+    .select("task_type")
+    .eq("parent_task_id", taskId);
+
+  for (const child of children ?? []) {
+    if (child.task_type === "task" && newType !== "epic") {
+      throw new Error(
+        "Can't change type: this task has Task children, which require an Epic parent",
+      );
+    }
+    if (child.task_type === "subtask" && newType !== "task") {
+      throw new Error(
+        "Can't change type: this task has Subtask children, which require a Task parent",
+      );
+    }
+  }
+}
+
+// Reparenting: the candidate parent must not be a descendant of the task
+// being moved (walking up from the candidate must never reach the task).
+async function assertNoParentCycle(
+  supabase: SupabaseClient,
+  projectId: string,
+  taskId: string,
+  candidateParentId: string,
+) {
+  if (candidateParentId === taskId) throw new Error("A task can't be its own parent");
+
+  const { data: rows } = await supabase
+    .from("tasks")
+    .select("id, parent_task_id")
+    .eq("project_id", projectId);
+  const parentOf = new Map((rows ?? []).map((r) => [r.id, r.parent_task_id as string | null]));
+
+  let cur: string | null = candidateParentId;
+  const seen = new Set<string>();
+  while (cur) {
+    if (cur === taskId) throw new Error("That would create a circular parent chain");
+    if (seen.has(cur)) break;
+    seen.add(cur);
+    cur = parentOf.get(cur) ?? null;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -76,11 +164,19 @@ export async function deleteSection(workspaceId: string, projectId: string, sect
 export async function createTask(
   workspaceId: string,
   projectId: string,
-  input: { name: string; sectionId?: string | null; parentTaskId?: string | null },
+  input: {
+    name: string;
+    sectionId?: string | null;
+    parentTaskId?: string | null;
+    taskType?: TaskType;
+  },
 ) {
   const { supabase, user } = await getClient();
   const name = input.name.trim();
   if (!name) throw new Error("Task name is required");
+  const taskType: TaskType = input.taskType ?? "task";
+
+  await assertValidHierarchy(supabase, taskType, input.parentTaskId ?? null);
 
   let positionQuery = supabase
     .from("tasks")
@@ -101,6 +197,7 @@ export async function createTask(
     project_id: projectId,
     section_id: input.parentTaskId ? null : (input.sectionId ?? null),
     parent_task_id: input.parentTaskId ?? null,
+    task_type: taskType,
     name,
     position: (last?.position ?? 0) + 1000,
     created_by: user.id,
@@ -133,9 +230,35 @@ export async function updateTask(
     start_date?: string | null;
     section_id?: string | null;
     description?: { text: string } | null;
+    task_type?: TaskType;
+    parent_task_id?: string | null;
   },
 ) {
   const { supabase, user } = await getClient();
+
+  // Hierarchy changes need the current row to resolve whichever of
+  // task_type/parent_task_id wasn't touched by this patch.
+  if (patch.task_type !== undefined || patch.parent_task_id !== undefined) {
+    const { data: current } = await supabase
+      .from("tasks")
+      .select("task_type, parent_task_id")
+      .eq("id", taskId)
+      .single();
+    if (!current) throw new Error("Task not found");
+
+    const resolvedType = patch.task_type ?? (current.task_type as TaskType);
+    const resolvedParent =
+      patch.parent_task_id !== undefined ? patch.parent_task_id : current.parent_task_id;
+
+    await assertValidHierarchy(supabase, resolvedType, resolvedParent);
+
+    if (patch.task_type !== undefined && patch.task_type !== current.task_type) {
+      await assertChildrenStillValid(supabase, taskId, patch.task_type);
+    }
+    if (patch.parent_task_id !== undefined && patch.parent_task_id) {
+      await assertNoParentCycle(supabase, projectId, taskId, patch.parent_task_id);
+    }
+  }
 
   const update: Record<string, unknown> = { ...patch };
   if (patch.name !== undefined) {
@@ -146,6 +269,10 @@ export async function updateTask(
   if (patch.completed !== undefined) {
     update.completed_at = patch.completed ? new Date().toISOString() : null;
     update.completed_by = patch.completed ? user.id : null;
+  }
+  // Parented tasks don't belong to a section (matches createTask's rule).
+  if (patch.parent_task_id) {
+    update.section_id = null;
   }
 
   const { error } = await supabase.from("tasks").update(update).eq("id", taskId);

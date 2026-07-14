@@ -24,6 +24,7 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Badge } from "@/components/ui/badge";
 import type { Profile, Section, Task } from "@/lib/types";
 import type { ProjectPageData } from "@/lib/tasks/page-data";
 import { cn } from "@/lib/utils";
@@ -319,6 +320,14 @@ function BoardCard({
         overlay && "rotate-2 shadow-lg",
       )}
     >
+      {task.task_type === "epic" && (
+        <Badge
+          variant="outline"
+          className="mb-1 border-violet-400/40 text-violet-600 dark:text-violet-400"
+        >
+          Epic
+        </Badge>
+      )}
       <p
         className={cn(
           "text-sm text-foreground",

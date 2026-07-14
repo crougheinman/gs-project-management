@@ -22,6 +22,8 @@ export type Section = {
   position: number;
 };
 
+export type TaskType = "epic" | "task" | "subtask";
+
 export type Task = {
   id: string;
   project_id: string;
@@ -34,6 +36,7 @@ export type Task = {
   due_date: string | null;
   start_date: string | null;
   position: number;
+  task_type: TaskType;
   assignee?: Pick<Profile, "id" | "full_name" | "email"> | null;
 };
 
