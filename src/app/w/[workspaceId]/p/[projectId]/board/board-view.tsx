@@ -63,11 +63,16 @@ export function BoardView(props: BoardViewProps) {
   const taskById = useMemo(() => new Map(tasks.map((t) => [t.id, t])), [tasks]);
   const [columns, setColumns] = useState<ColumnMap>(() => buildColumns(sections, tasks));
   const [activeId, setActiveId] = useState<string | null>(null);
+  // Tasks whose column move is still being persisted. While non-empty, skip
+  // the resync below - otherwise stale server props (from before the move
+  // resolves) would yank the card back to its original column, then jump it
+  // forward again once fresh props arrive.
+  const [transferring, setTransferring] = useState<Set<string>>(new Set());
 
-  // Re-sync local order from server data except mid-drag.
+  // Re-sync local order from server data except mid-drag or mid-move.
   useEffect(() => {
-    if (!activeId) setColumns(buildColumns(sections, tasks));
-  }, [sections, tasks, activeId]);
+    if (!activeId && transferring.size === 0) setColumns(buildColumns(sections, tasks));
+  }, [sections, tasks, activeId, transferring]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -135,13 +140,25 @@ export function BoardView(props: BoardViewProps) {
     const prevTaskId = finalIndex > 0 ? items[finalIndex - 1] : null;
     const nextTaskId = finalIndex < items.length - 1 ? items[finalIndex + 1] : null;
 
-    run(() =>
-      moveTask(workspaceId, projectId, String(active.id), {
-        sectionId: activeCol === NO_SECTION ? null : activeCol,
-        prevTaskId,
-        nextTaskId,
-      }),
-    );
+    const taskId = String(active.id);
+    setTransferring((prev) => new Set(prev).add(taskId));
+    startTransition(async () => {
+      try {
+        await moveTask(workspaceId, projectId, taskId, {
+          sectionId: activeCol === NO_SECTION ? null : activeCol,
+          prevTaskId,
+          nextTaskId,
+        });
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : "Something went wrong");
+      } finally {
+        setTransferring((prev) => {
+          const next = new Set(prev);
+          next.delete(taskId);
+          return next;
+        });
+      }
+    });
   }
 
   function openPanel(taskId: string) {
@@ -173,6 +190,7 @@ export function BoardView(props: BoardViewProps) {
                 taskIds={columns[col.key] ?? []}
                 taskById={taskById}
                 members={members}
+                transferring={transferring}
                 onOpen={openPanel}
                 onAdd={(name) =>
                   run(() =>
@@ -226,6 +244,7 @@ function BoardColumn({
   taskIds,
   taskById,
   members,
+  transferring,
   onOpen,
   onAdd,
 }: {
@@ -234,6 +253,7 @@ function BoardColumn({
   taskIds: string[];
   taskById: Map<string, Task>;
   members: Profile[];
+  transferring: Set<string>;
   onOpen: (taskId: string) => void;
   onAdd: (name: string) => void;
 }) {
@@ -254,7 +274,13 @@ function BoardColumn({
           {taskIds.map((id) => {
             const task = taskById.get(id);
             return task ? (
-              <SortableCard key={id} task={task} members={members} onOpen={onOpen} />
+              <SortableCard
+                key={id}
+                task={task}
+                members={members}
+                transferring={transferring.has(id)}
+                onOpen={onOpen}
+              />
             ) : null;
           })}
         </ul>
@@ -267,14 +293,17 @@ function BoardColumn({
 function SortableCard({
   task,
   members,
+  transferring,
   onOpen,
 }: {
   task: Task;
   members: Profile[];
+  transferring: boolean;
   onOpen: (taskId: string) => void;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: task.id,
+    disabled: transferring,
   });
 
   return (
@@ -285,7 +314,7 @@ function SortableCard({
       {...attributes}
       {...listeners}
     >
-      <BoardCard task={task} members={members} onOpen={onOpen} />
+      <BoardCard task={task} members={members} transferring={transferring} onOpen={onOpen} />
     </li>
   );
 }
@@ -293,11 +322,13 @@ function SortableCard({
 function BoardCard({
   task,
   members,
+  transferring,
   onOpen,
   overlay,
 }: {
   task: Task;
   members: Profile[];
+  transferring?: boolean;
   onOpen?: (taskId: string) => void;
   overlay?: boolean;
 }) {
@@ -314,9 +345,13 @@ function BoardCard({
   return (
     <button
       type="button"
+      disabled={transferring}
       onClick={onOpen ? () => onOpen(task.id) : undefined}
       className={cn(
-        "w-full cursor-pointer rounded-md border border-border bg-card p-3 text-left shadow-xs transition-shadow duration-150 hover:shadow-md",
+        "w-full rounded-md border border-border bg-card p-3 text-left shadow-xs transition-shadow duration-150 hover:shadow-md",
+        transferring
+          ? "cursor-not-allowed grayscale opacity-60 hover:shadow-xs"
+          : "cursor-pointer",
         overlay && "rotate-2 shadow-lg",
       )}
     >
@@ -336,6 +371,9 @@ function BoardCard({
       >
         {task.name}
       </p>
+      {transferring && (
+        <p className="mt-1 animate-pulse text-xs text-muted-foreground">Transferring…</p>
+      )}
       {(assignee || task.due_date) && (
         <div className="mt-2 flex items-center justify-between gap-2">
           {assignee ? (
