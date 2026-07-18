@@ -6,7 +6,8 @@ import { toast } from "sonner";
 import { useDropzone } from "react-dropzone";
 import {
   ChevronRight,
-  Download,
+  Maximize2,
+  Minimize2,
   Paperclip,
   Plus,
   Tag as TagIcon,
@@ -16,6 +17,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -55,9 +57,11 @@ import {
   updateTask,
   uploadTaskAttachment,
 } from "@/app/w/[workspaceId]/p/[projectId]/actions";
+import { AttachmentGallery } from "@/components/attachment-gallery";
 import { CommentEditor } from "@/components/comment-editor";
 import { CommentBody } from "@/components/comment-body";
 import { CustomFieldInput } from "@/components/custom-field-input";
+import { useTaskViewStore } from "@/lib/task-view-store";
 
 const UNASSIGNED = "__unassigned__";
 const NO_PARENT = "__no_parent__";
@@ -152,6 +156,13 @@ export function TaskPanel({
   const [newTag, setNewTag] = useState("");
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const mode = useTaskViewStore((s) => s.mode);
+  const toggleMode = useTaskViewStore((s) => s.toggleMode);
+  // skipHydration on the store avoids a hydration mismatch (server has no
+  // localStorage); rehydrate explicitly once mounted on the client.
+  useEffect(() => {
+    useTaskViewStore.persist.rehydrate();
+  }, []);
 
   const subtasks = allTasks.filter((t) => t.parent_task_id === task.id);
   const parentCandidates = eligibleParents(task, allTasks);
@@ -278,16 +289,8 @@ export function TaskPanel({
     return m?.full_name || m?.email || "Someone";
   }
 
-  return (
-    <aside
-      {...getRootProps({
-        "aria-label": `Task details: ${task.name}`,
-        className: cn(
-          "sticky top-20 flex h-fit max-h-[calc(100dvh-6rem)] w-96 shrink-0 flex-col overflow-y-auto rounded-lg border border-border bg-card p-4 shadow-sm",
-          isDragActive && "ring-2 ring-primary",
-        ),
-      })}
-    >
+  const body = (
+    <>
       <div className="flex items-center justify-between gap-2">
         <Button
           variant={task.completed ? "secondary" : "outline"}
@@ -311,6 +314,14 @@ export function TaskPanel({
             }}
           >
             <Trash2 aria-hidden="true" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label={mode === "side" ? "Expand to modal" : "Collapse to side panel"}
+            onClick={toggleMode}
+          >
+            {mode === "side" ? <Maximize2 aria-hidden="true" /> : <Minimize2 aria-hidden="true" />}
           </Button>
           <Button variant="ghost" size="icon-sm" aria-label="Close panel" onClick={onClose}>
             <X aria-hidden="true" />
@@ -649,40 +660,12 @@ export function TaskPanel({
           Drop to attach
         </p>
       )}
-      {taskAttachments.length > 0 && (
-        <ul className="mt-1 flex flex-col gap-1">
-          {taskAttachments.map((a) => (
-            <li key={a.id} className="group flex items-center gap-2 text-sm">
-              <button
-                type="button"
-                className="min-w-0 flex-1 cursor-pointer truncate text-left text-foreground underline-offset-4 hover:underline"
-                onClick={() => handleDownload(a)}
-              >
-                {a.file_name}
-              </button>
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                aria-label={`Download ${a.file_name}`}
-                onClick={() => handleDownload(a)}
-              >
-                <Download aria-hidden="true" />
-              </Button>
-              {a.uploaded_by === currentUserId && (
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  aria-label={`Delete ${a.file_name}`}
-                  className="opacity-0 transition-opacity duration-150 group-hover:opacity-100 focus-visible:opacity-100"
-                  onClick={() => run(() => deleteAttachment(workspaceId, projectId, a.id))}
-                >
-                  <Trash2 aria-hidden="true" />
-                </Button>
-              )}
-            </li>
-          ))}
-        </ul>
-      )}
+      <AttachmentGallery
+        attachments={taskAttachments}
+        currentUserId={currentUserId}
+        onDownload={handleDownload}
+        onDelete={(attachmentId) => run(() => deleteAttachment(workspaceId, projectId, attachmentId))}
+      />
 
       {childKind && (
         <>
@@ -814,6 +797,43 @@ export function TaskPanel({
           Go to parent task
         </button>
       )}
+    </>
+  );
+
+  if (mode === "modal") {
+    return (
+      <Dialog
+        open
+        onOpenChange={(open) => {
+          if (!open) onClose();
+        }}
+      >
+        <DialogContent
+          {...getRootProps({
+            role: "dialog",
+            className: cn(
+              "sm:max-w-3xl max-h-[85vh] overflow-y-auto",
+              isDragActive && "ring-2 ring-primary",
+            ),
+          })}
+        >
+          {body}
+        </DialogContent>
+      </Dialog>
+    );
+  }
+
+  return (
+    <aside
+      {...getRootProps({
+        "aria-label": `Task details: ${task.name}`,
+        className: cn(
+          "sticky top-20 flex h-fit max-h-[calc(100dvh-6rem)] w-96 shrink-0 flex-col overflow-y-auto rounded-lg border border-border bg-card p-4 shadow-sm",
+          isDragActive && "ring-2 ring-primary",
+        ),
+      })}
+    >
+      {body}
     </aside>
   );
 }
