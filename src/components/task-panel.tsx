@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
+import { useDropzone } from "react-dropzone";
 import {
   ChevronRight,
   Download,
@@ -41,7 +42,6 @@ import type {
 import { cn } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
 import {
-  addAttachmentRecord,
   addDependency,
   createComment,
   createTag,
@@ -53,6 +53,7 @@ import {
   setCustomFieldValue,
   setTaskTag,
   updateTask,
+  uploadTaskAttachment,
 } from "@/app/w/[workspaceId]/p/[projectId]/actions";
 import { CommentEditor } from "@/components/comment-editor";
 import { CommentBody } from "@/components/comment-body";
@@ -211,38 +212,66 @@ export function TaskPanel({
     });
   }
 
-  async function handleUpload(file: File) {
+  const MAX_ATTACHMENT_BYTES = 8 * 1024 * 1024;
+
+  async function handleUpload(files: FileList | File[]) {
+    const list = Array.from(files);
+    if (list.length === 0) return;
     setUploading(true);
     try {
-      const supabase = createClient();
-      const path = `${projectId}/${task.id}/${crypto.randomUUID()}-${file.name}`;
-      const { error } = await supabase.storage.from("attachments").upload(path, file);
-      if (error) throw new Error(error.message);
-      await addAttachmentRecord(workspaceId, projectId, task.id, {
-        storagePath: path,
-        fileName: file.name,
-        fileSize: file.size,
-        mimeType: file.type,
-      });
-      toast.success("File attached");
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Upload failed");
+      const results = await Promise.all(
+        list.map(async (file): Promise<boolean> => {
+          if (file.size > MAX_ATTACHMENT_BYTES) {
+            toast.error(`${file.name} is over the 8MB limit`);
+            return false;
+          }
+          try {
+            await uploadTaskAttachment(workspaceId, projectId, task.id, file);
+            return true;
+          } catch (err) {
+            toast.error(err instanceof Error ? err.message : `${file.name} failed to upload`);
+            return false;
+          }
+        }),
+      );
+      const successCount = results.filter((success) => success).length;
+      if (successCount > 0) {
+        toast.success(successCount === 1 ? "File attached" : `${successCount} files attached`);
+      }
     } finally {
       setUploading(false);
     }
   }
 
-  async function handleDownload(attachment: Attachment) {
-    const supabase = createClient();
-    const { data, error } = await supabase.storage
-      .from("attachments")
-      .createSignedUrl(attachment.storage_path, 60);
-    if (error || !data) {
-      toast.error("Could not create download link");
-      return;
-    }
-    window.open(data.signedUrl, "_blank", "noopener");
+  function handleDownload(attachment: Attachment) {
+    window.open(`/api/attachments/${attachment.id}`, "_blank", "noopener");
   }
+
+  const { getRootProps, isDragActive } = useDropzone({
+    onDrop: (acceptedFiles) => handleUpload(acceptedFiles),
+    noClick: true,
+    noKeyboard: true,
+  });
+
+  useEffect(() => {
+    function handleGlobalPaste(e: ClipboardEvent) {
+      if (!e.clipboardData) return;
+      const target = e.target as HTMLElement | null;
+      if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)) {
+        return;
+      }
+      const files = Array.from(e.clipboardData.items)
+        .filter((item) => item.kind === "file")
+        .map((item) => item.getAsFile())
+        .filter((f): f is File => f !== null);
+      if (files.length > 0) {
+        e.preventDefault();
+        handleUpload(files);
+      }
+    }
+    document.addEventListener("paste", handleGlobalPaste);
+    return () => document.removeEventListener("paste", handleGlobalPaste);
+  }, [task.id]);
 
   function memberName(id: string | null | undefined) {
     const m = members.find((x) => x.id === id);
@@ -251,8 +280,13 @@ export function TaskPanel({
 
   return (
     <aside
-      aria-label={`Task details: ${task.name}`}
-      className="sticky top-20 flex h-fit max-h-[calc(100dvh-6rem)] w-96 shrink-0 flex-col overflow-y-auto rounded-lg border border-border bg-card p-4 shadow-sm"
+      {...getRootProps({
+        "aria-label": `Task details: ${task.name}`,
+        className: cn(
+          "sticky top-20 flex h-fit max-h-[calc(100dvh-6rem)] w-96 shrink-0 flex-col overflow-y-auto rounded-lg border border-border bg-card p-4 shadow-sm",
+          isDragActive && "ring-2 ring-primary",
+        ),
+      })}
     >
       <div className="flex items-center justify-between gap-2">
         <Button
@@ -592,11 +626,11 @@ export function TaskPanel({
         <input
           ref={fileInputRef}
           type="file"
+          multiple
           className="sr-only"
           aria-label="Upload attachment"
           onChange={(e) => {
-            const file = e.target.files?.[0];
-            if (file) handleUpload(file);
+            if (e.target.files && e.target.files.length > 0) handleUpload(e.target.files);
             e.target.value = "";
           }}
         />
@@ -610,6 +644,11 @@ export function TaskPanel({
           {uploading ? "Uploading..." : "Attach"}
         </Button>
       </div>
+      {isDragActive && (
+        <p className="mt-1 rounded border border-dashed border-primary p-2 text-center text-xs text-muted-foreground">
+          Drop to attach
+        </p>
+      )}
       {taskAttachments.length > 0 && (
         <ul className="mt-1 flex flex-col gap-1">
           {taskAttachments.map((a) => (
@@ -635,9 +674,7 @@ export function TaskPanel({
                   size="icon-sm"
                   aria-label={`Delete ${a.file_name}`}
                   className="opacity-0 transition-opacity duration-150 group-hover:opacity-100 focus-visible:opacity-100"
-                  onClick={() =>
-                    run(() => deleteAttachment(workspaceId, projectId, a.id, a.storage_path))
-                  }
+                  onClick={() => run(() => deleteAttachment(workspaceId, projectId, a.id))}
                 >
                   <Trash2 aria-hidden="true" />
                 </Button>

@@ -506,26 +506,64 @@ export async function deleteComment(workspaceId: string, projectId: string, comm
 }
 
 // ---------------------------------------------------------------------------
-// Attachments (file itself is uploaded client-side; this records metadata)
+// Attachments (file bytes live in admin/, never touched by the browser — this
+// server action is the only thing that holds PM_SERVICE_KEY)
 // ---------------------------------------------------------------------------
 
-export async function addAttachmentRecord(
+const ADMIN_API_BASE_URL = process.env.ADMIN_API_BASE_URL!;
+const PM_SERVICE_KEY = process.env.PM_SERVICE_KEY!;
+
+export async function uploadTaskAttachment(
   workspaceId: string,
   projectId: string,
   taskId: string,
-  file: { storagePath: string; fileName: string; fileSize: number; mimeType: string },
+  file: File,
 ) {
   const { supabase, user } = await getClient();
 
+  const id = crypto.randomUUID();
+  const form = new FormData();
+  form.append("id", id);
+  form.append("original_name", file.name);
+  form.append("file", file, file.name);
+
+  const uploadRes = await fetch(`${ADMIN_API_BASE_URL}/api/pm/attachments`, {
+    method: "POST",
+    headers: { "X-Pm-Key": PM_SERVICE_KEY },
+    body: form,
+  });
+  if (!uploadRes.ok) {
+    const body = await uploadRes.json().catch(() => null);
+    throw new Error(body?.data?.message ?? "Upload failed");
+  }
+  const uploaded = (await uploadRes.json()) as {
+    data: { storage_path: string; size_bytes: number; mime_type: string };
+  };
+
   const { error } = await supabase.from("attachments").insert({
+    id,
     task_id: taskId,
     uploaded_by: user.id,
-    storage_path: file.storagePath,
-    file_name: file.fileName,
-    file_size: file.fileSize,
-    mime_type: file.mimeType,
+    storage_path: uploaded.data.storage_path,
+    file_name: file.name,
+    file_size: uploaded.data.size_bytes,
+    mime_type: uploaded.data.mime_type,
   });
-  if (error) throw new Error(error.message);
+  if (error) {
+    // Orphan cleanup: the file exists on admin but has no authorized Supabase
+    // row pointing at it, so remove it rather than leaking storage.
+    await fetch(`${ADMIN_API_BASE_URL}/api/pm/attachments/${id}`, {
+      method: "DELETE",
+      headers: { "X-Pm-Key": PM_SERVICE_KEY },
+    }).catch(() => {});
+    throw new Error(error.message);
+  }
+
+  const { data: task } = await supabase
+    .from("tasks")
+    .select("name")
+    .eq("id", taskId)
+    .maybeSingle();
 
   await logActivity(supabase, {
     workspaceId,
@@ -534,7 +572,8 @@ export async function addAttachmentRecord(
     actorId: user.id,
     action: "attachment.added",
     entityType: "attachment",
-    metadata: { file_name: file.fileName },
+    entityId: id,
+    metadata: { file_name: file.name, name: task?.name ?? "a task" },
   });
 
   revalidatePath(projectPath(workspaceId, projectId));
@@ -544,12 +583,16 @@ export async function deleteAttachment(
   workspaceId: string,
   projectId: string,
   attachmentId: string,
-  storagePath: string,
 ) {
   const { supabase } = await getClient();
   const { error } = await supabase.from("attachments").delete().eq("id", attachmentId);
   if (error) throw new Error(error.message);
-  await supabase.storage.from("attachments").remove([storagePath]);
+
+  await fetch(`${ADMIN_API_BASE_URL}/api/pm/attachments/${attachmentId}`, {
+    method: "DELETE",
+    headers: { "X-Pm-Key": PM_SERVICE_KEY },
+  }).catch(() => {});
+
   revalidatePath(projectPath(workspaceId, projectId));
 }
 
