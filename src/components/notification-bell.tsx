@@ -1,10 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Bell } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
+import { NavLink } from "@/components/nav-link";
 
 export function NotificationBell({
   workspaceId,
@@ -43,7 +43,7 @@ export function NotificationBell({
   }, [supabase, userId, router]);
 
   return (
-    <Link
+    <NavLink
       href={`/w/${workspaceId}/notifications`}
       aria-label={`Notifications${initialUnread > 0 ? ` (${initialUnread} unread)` : ""}`}
       className="relative rounded-md p-1.5 text-muted-foreground transition-colors duration-150 hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring"
@@ -57,6 +57,6 @@ export function NotificationBell({
           {initialUnread > 9 ? "9+" : initialUnread}
         </span>
       )}
-    </Link>
+    </NavLink>
   );
 }

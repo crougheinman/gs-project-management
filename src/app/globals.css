@@ -134,3 +134,25 @@
     @apply font-sans;
   }
 }
+
+@theme {
+  /* Long, decelerating "trickle" used while a navigation is pending. Holds
+     at 85% (via `forwards`) if a navigation takes longer than 6s, so the
+     bar never falsely reaches 100% while still loading. */
+  --animate-nav-progress-grow: nav-progress-grow 6s cubic-bezier(0.1, 0.7, 1, 0.1) forwards;
+}
+
+@keyframes nav-progress-grow {
+  0% {
+    transform: scaleX(0);
+  }
+  20% {
+    transform: scaleX(0.2);
+  }
+  55% {
+    transform: scaleX(0.55);
+  }
+  100% {
+    transform: scaleX(0.85);
+  }
+}

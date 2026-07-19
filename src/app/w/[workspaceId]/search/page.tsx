@@ -1,6 +1,6 @@
-import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { Input } from "@/components/ui/input";
+import { NavLink } from "@/components/nav-link";
 import { cn } from "@/lib/utils";
 
 type SearchRow = {
@@ -60,7 +60,7 @@ export default async function SearchPage({
         <ul className="mt-4 divide-y divide-border rounded-lg border border-border bg-card">
           {results.map((task) => (
             <li key={task.id}>
-              <Link
+              <NavLink
                 href={`/w/${workspaceId}/p/${task.project_id}/list?task=${task.id}`}
                 className="flex items-center justify-between gap-4 px-4 py-2.5 transition-colors duration-150 hover:bg-muted/50"
               >
@@ -78,7 +78,7 @@ export default async function SearchPage({
                 {task.due_date && (
                   <span className="shrink-0 text-xs text-muted-foreground">{task.due_date}</span>
                 )}
-              </Link>
+              </NavLink>
             </li>
           ))}
         </ul>

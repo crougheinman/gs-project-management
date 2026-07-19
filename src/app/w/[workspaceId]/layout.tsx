@@ -1,9 +1,8 @@
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { Button } from "@/components/ui/button";
 import { NotificationBell } from "@/components/notification-bell";
-import { signOut } from "./actions";
+import { NavLink } from "@/components/nav-link";
+import { ProfileMenu } from "@/components/profile-menu";
 
 export default async function WorkspaceLayout({
   children,
@@ -25,48 +24,52 @@ export default async function WorkspaceLayout({
   }
 
   const userId = userRes.data.user!.id;
-  const { count: unread } = await supabase
-    .from("notifications")
-    .select("id", { count: "exact", head: true })
-    .eq("recipient_id", userId)
-    .eq("read", false);
+  const [{ count: unread }, { data: profile }] = await Promise.all([
+    supabase
+      .from("notifications")
+      .select("id", { count: "exact", head: true })
+      .eq("recipient_id", userId)
+      .eq("read", false),
+    supabase.from("profiles").select("full_name, email, avatar_url").eq("id", userId).single(),
+  ]);
 
   return (
     <div className="flex min-h-full flex-col">
       <header className="sticky top-0 z-40 border-b border-border bg-card">
         <div className="mx-auto flex h-14 max-w-5xl items-center justify-between px-4">
-          <Link href={`/w/${workspaceId}`} className="font-semibold text-foreground">
+          <NavLink href={`/w/${workspaceId}`} className="font-semibold text-foreground">
             {workspace.name}
-          </Link>
+          </NavLink>
           <nav className="flex items-center gap-4 text-sm">
-            <Link
+            <NavLink
               href={`/w/${workspaceId}/search`}
               className="text-muted-foreground hover:text-foreground"
             >
               Search
-            </Link>
-            <Link
+            </NavLink>
+            <NavLink
               href={`/w/${workspaceId}/my-tasks`}
               className="text-muted-foreground hover:text-foreground"
             >
               My tasks
-            </Link>
-            <Link
+            </NavLink>
+            <NavLink
               href={`/w/${workspaceId}/settings/members`}
               className="text-muted-foreground hover:text-foreground"
             >
               Members
-            </Link>
+            </NavLink>
             <NotificationBell
               workspaceId={workspaceId}
               userId={userId}
               initialUnread={unread ?? 0}
             />
-            <form action={signOut}>
-              <Button type="submit" variant="ghost" size="sm">
-                Sign out
-              </Button>
-            </form>
+            <ProfileMenu
+              workspaceId={workspaceId}
+              email={profile?.email ?? userRes.data.user!.email ?? ""}
+              fullName={profile?.full_name ?? null}
+              avatarUrl={profile?.avatar_url ?? null}
+            />
           </nav>
         </div>
       </header>

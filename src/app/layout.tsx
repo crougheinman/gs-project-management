@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import { Plus_Jakarta_Sans, Geist_Mono } from "next/font/google";
 import { Toaster } from "@/components/ui/sonner";
+import { NavigationProgressProvider } from "@/components/navigation-progress-provider";
+import { TopProgressBar } from "@/components/top-progress-bar";
 import { Providers } from "./providers";
 import "./globals.css";
 
@@ -30,7 +32,10 @@ export default function RootLayout({
       className={`${plusJakartaSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">
-        <Providers>{children}</Providers>
+        <NavigationProgressProvider>
+          <TopProgressBar />
+          <Providers>{children}</Providers>
+        </NavigationProgressProvider>
         <Toaster />
       </body>
     </html>

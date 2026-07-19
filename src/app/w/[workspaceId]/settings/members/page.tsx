@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import {
   Table,
@@ -9,6 +8,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
+import { NavLink } from "@/components/nav-link";
 import { InviteForm } from "./invite-form";
 import { RoleSelect } from "./role-select";
 import { MemberActions } from "./member-actions";
@@ -52,12 +52,12 @@ export default async function MembersPage({
     <div className="mx-auto max-w-2xl p-6">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold text-foreground">Members</h1>
-        <Link
+        <NavLink
           href={`/w/${workspaceId}/settings/tags`}
           className="text-sm text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
         >
           Manage tags
-        </Link>
+        </NavLink>
       </div>
       <p className="mt-1 text-sm text-muted-foreground">
         Manage who has access to this workspace.

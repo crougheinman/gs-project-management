@@ -1,7 +1,7 @@
 "use client";
 
-import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { NavLink } from "@/components/nav-link";
 import { cn } from "@/lib/utils";
 
 const TABS = [
@@ -24,7 +24,7 @@ export function ProjectTabs({ base }: { base: string }) {
           const active = pathname.startsWith(href);
           return (
             <li key={tab.slug}>
-              <Link
+              <NavLink
                 href={href}
                 aria-current={active ? "page" : undefined}
                 className={cn(
@@ -35,7 +35,7 @@ export function ProjectTabs({ base }: { base: string }) {
                 )}
               >
                 {tab.label}
-              </Link>
+              </NavLink>
             </li>
           );
         })}

@@ -1,5 +1,5 @@
-import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
+import { NavLink } from "@/components/nav-link";
 import { cn } from "@/lib/utils";
 
 type MyTaskRow = {
@@ -45,7 +45,7 @@ export default async function MyTasksPage({
         <ul className="mt-6 divide-y divide-border rounded-lg border border-border bg-card">
           {tasks.map((task) => (
             <li key={task.id}>
-              <Link
+              <NavLink
                 href={`/w/${workspaceId}/p/${task.project_id}/list?task=${task.id}`}
                 className="flex items-center justify-between gap-4 px-4 py-2.5 transition-colors duration-150 hover:bg-muted/50"
               >
@@ -65,7 +65,7 @@ export default async function MyTasksPage({
                     {task.due_date}
                   </span>
                 )}
-              </Link>
+              </NavLink>
             </li>
           ))}
         </ul>

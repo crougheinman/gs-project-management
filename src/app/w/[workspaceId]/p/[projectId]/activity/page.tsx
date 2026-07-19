@@ -1,5 +1,5 @@
-import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
+import { NavLink } from "@/components/nav-link";
 
 const ACTIVITY_LABELS: Record<string, string> = {
   "task.created": "created task",
@@ -53,12 +53,12 @@ export default async function ProjectActivityPage({
                 <span className="font-medium text-foreground">{actorName}</span>{" "}
                 <span className="text-muted-foreground">{label}</span>{" "}
                 {entry.task_id && taskName ? (
-                  <Link
+                  <NavLink
                     href={`/w/${workspaceId}/p/${projectId}/list?task=${entry.task_id}`}
                     className="text-foreground underline-offset-4 hover:underline"
                   >
                     {taskName}
-                  </Link>
+                  </NavLink>
                 ) : (
                   <span className="text-foreground">{taskName}</span>
                 )}

@@ -1,6 +1,6 @@
-import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { Button } from "@/components/ui/button";
+import { NavLink } from "@/components/nav-link";
 import { cn } from "@/lib/utils";
 import { markAllNotificationsRead, markNotificationRead } from "./actions";
 
@@ -65,7 +65,7 @@ export default async function NotificationsPage({
             const markRead = markNotificationRead.bind(null, workspaceId, n.id);
             return (
               <li key={n.id} className={cn("flex items-center gap-3 px-4 py-2.5", !n.read && "bg-accent/40")}>
-                <Link
+                <NavLink
                   href={href}
                   className="min-w-0 flex-1 transition-colors duration-150 hover:text-primary"
                 >
@@ -75,7 +75,7 @@ export default async function NotificationsPage({
                   <p className="text-xs text-muted-foreground">
                     {new Date(n.created_at).toLocaleString()}
                   </p>
-                </Link>
+                </NavLink>
                 {!n.read && (
                   <form action={markRead}>
                     <Button type="submit" variant="ghost" size="sm">

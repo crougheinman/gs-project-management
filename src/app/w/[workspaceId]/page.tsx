@@ -1,7 +1,7 @@
-import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { NavLink } from "@/components/nav-link";
 import { NewProjectDialog } from "./new-project-dialog";
 
 export default async function WorkspaceDashboardPage({
@@ -29,7 +29,7 @@ export default async function WorkspaceDashboardPage({
       {projects && projects.length > 0 ? (
         <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {projects.map((project) => (
-            <Link key={project.id} href={`/w/${workspaceId}/p/${project.id}/list`}>
+            <NavLink key={project.id} href={`/w/${workspaceId}/p/${project.id}/list`}>
               <Card className="h-full transition-shadow duration-200 hover:shadow-md">
                 <CardHeader>
                   <CardTitle className="text-base">{project.name}</CardTitle>
@@ -40,7 +40,7 @@ export default async function WorkspaceDashboardPage({
                   )}
                 </CardContent>
               </Card>
-            </Link>
+            </NavLink>
           ))}
         </div>
       ) : (
