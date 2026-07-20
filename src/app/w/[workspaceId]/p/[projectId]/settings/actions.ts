@@ -1,7 +1,6 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 
 export async function renameProject(workspaceId: string, projectId: string, name: string) {
@@ -20,7 +19,11 @@ export async function archiveProject(workspaceId: string, projectId: string) {
     .update({ status: "archived" })
     .eq("id", projectId);
   if (error) throw new Error(error.message);
-  redirect(`/w/${workspaceId}`);
+  // Navigation happens client-side (see settings-view.tsx) rather than via
+  // redirect() here - redirect() throws internally, and the client call site
+  // wraps this action in try/catch to toast real errors, which would
+  // otherwise catch and surface the redirect's own throw as a fake error.
+  revalidatePath(`/w/${workspaceId}`);
 }
 
 export async function addProjectMember(

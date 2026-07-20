@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -42,6 +43,7 @@ export function SettingsView({
   workspaceMembers: Pick<Profile, "id" | "full_name" | "email">[];
   customFields: CustomField[];
 }) {
+  const router = useRouter();
   const [, startTransition] = useTransition();
   const [addUserId, setAddUserId] = useState<string>("");
   const [addRole, setAddRole] = useState<string>("editor");
@@ -189,7 +191,10 @@ export function SettingsView({
         className="text-destructive"
         onClick={() => {
           if (confirm(`Archive project "${projectName}"? It disappears from the dashboard.`)) {
-            run(() => archiveProject(workspaceId, projectId));
+            run(async () => {
+              await archiveProject(workspaceId, projectId);
+              router.push(`/w/${workspaceId}`);
+            });
           }
         }}
       >

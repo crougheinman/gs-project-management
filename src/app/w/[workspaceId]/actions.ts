@@ -13,7 +13,7 @@ export async function signOut() {
   redirect("/login");
 }
 
-export async function createProject(workspaceId: string, formData: FormData) {
+export async function createProject(workspaceId: string, formData: FormData): Promise<string> {
   const name = (formData.get("name") as string)?.trim();
   if (!name) throw new Error("Project name is required");
   const visibility = formData.get("visibility") === "private" ? "private" : "workspace";
@@ -42,7 +42,11 @@ export async function createProject(workspaceId: string, formData: FormData) {
     .insert({ project_id: projectId, name: "To do", position: 1000 });
 
   revalidatePath(`/w/${workspaceId}`);
-  redirect(`/w/${workspaceId}/p/${projectId}/list`);
+  // Navigation happens client-side (see new-project-dialog.tsx) rather than
+  // via redirect() here - redirect() throws internally, and the client call
+  // site wraps this action in try/catch to toast real errors, which would
+  // otherwise catch and surface the redirect's own throw as a fake error.
+  return projectId;
 }
 
 export async function updateProfile(workspaceId: string, formData: FormData) {

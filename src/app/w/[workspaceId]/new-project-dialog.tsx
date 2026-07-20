@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -24,6 +25,7 @@ import {
 import { createProject } from "./actions";
 
 export function NewProjectDialog({ workspaceId }: { workspaceId: string }) {
+  const router = useRouter();
   const [open, setOpen] = useState(false);
   const [visibility, setVisibility] = useState<"workspace" | "private">("workspace");
   const [isPending, startTransition] = useTransition();
@@ -31,8 +33,9 @@ export function NewProjectDialog({ workspaceId }: { workspaceId: string }) {
   function handleSubmit(formData: FormData) {
     startTransition(async () => {
       try {
-        await createProject(workspaceId, formData);
-        // createProject redirects on success
+        const projectId = await createProject(workspaceId, formData);
+        setOpen(false);
+        router.push(`/w/${workspaceId}/p/${projectId}/list`);
       } catch (err) {
         toast.error(err instanceof Error ? err.message : "Failed to create project");
       }

@@ -32,9 +32,9 @@ export async function fetchProjectPageData(
     fetchProjectTasks(supabase, projectId),
     fetchWorkspaceTags(supabase, workspaceId),
     supabase
-      .from("workspace_members")
+      .from("project_members")
       .select("profiles(id, email, full_name, avatar_url)")
-      .eq("workspace_id", workspaceId),
+      .eq("project_id", projectId),
     supabase
       .from("comments")
       .select(
