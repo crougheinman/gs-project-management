@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ProgressOverlay } from "@/components/progress-overlay";
+import { SilkBackground } from "@/components/silk-background";
 import { signIn } from "./actions";
 
 // Sign-in only. Public self-registration is disabled (single-org app) - new
@@ -31,8 +32,9 @@ export function LoginForm() {
   }
 
   return (
-    <div className="flex min-h-full flex-1 items-center justify-center bg-background p-4">
-      <Card className="w-full max-w-sm">
+    <div className="relative flex min-h-full flex-1 items-center justify-center overflow-hidden bg-[linear-gradient(135deg,#050b28_0%,#12358a_50%,#060d2c_100%)] p-4">
+      <SilkBackground />
+      <Card className="relative z-10 w-full max-w-sm">
         <CardHeader>
           <CardTitle>Sign in</CardTitle>
           <CardDescription>Sign in to your workspace.</CardDescription>
