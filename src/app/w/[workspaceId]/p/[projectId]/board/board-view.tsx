@@ -82,16 +82,6 @@ export function BoardView(props: BoardViewProps) {
   const openTaskId = searchParams.get("task");
   const openTask = openTaskId ? tasks.find((t) => t.id === openTaskId) : undefined;
 
-  function run(action: () => Promise<unknown>) {
-    startTransition(async () => {
-      try {
-        await action();
-      } catch (err) {
-        toast.error(err instanceof Error ? err.message : "Something went wrong");
-      }
-    });
-  }
-
   function findColumn(id: string): string | undefined {
     if (id in columns) return id;
     return Object.keys(columns).find((key) => columns[key].includes(id));
@@ -192,14 +182,16 @@ export function BoardView(props: BoardViewProps) {
                 members={members}
                 transferring={transferring}
                 onOpen={openPanel}
-                onAdd={(name) =>
-                  run(() =>
-                    createTask(workspaceId, projectId, {
+                onAdd={async (name) => {
+                  try {
+                    await createTask(workspaceId, projectId, {
                       name,
                       sectionId: col.key === NO_SECTION ? null : col.key,
-                    }),
-                  )
-                }
+                    });
+                  } catch (err) {
+                    toast.error(err instanceof Error ? err.message : "Something went wrong");
+                  }
+                }}
               />
             ))}
           </div>
@@ -255,7 +247,7 @@ function BoardColumn({
   members: Profile[];
   transferring: Set<string>;
   onOpen: (taskId: string) => void;
-  onAdd: (name: string) => void;
+  onAdd: (name: string) => Promise<void>;
 }) {
   const { setNodeRef } = useDroppable({ id: columnKey });
 

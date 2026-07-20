@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Plus } from "lucide-react";
@@ -22,27 +22,40 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { createProject } from "./actions";
+import { ProgressOverlay } from "@/components/progress-overlay";
+import { createDefaultSection, createProjectRow } from "./actions";
+
+const CREATE_TOTAL_STAGES = 2;
 
 export function NewProjectDialog({ workspaceId }: { workspaceId: string }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [visibility, setVisibility] = useState<"workspace" | "private">("workspace");
-  const [isPending, startTransition] = useTransition();
+  const [createStage, setCreateStage] = useState<string | null>(null);
+  const [createStageIndex, setCreateStageIndex] = useState(0);
+  const isPending = createStage !== null;
 
-  function handleSubmit(formData: FormData) {
-    startTransition(async () => {
-      try {
-        const projectId = await createProject(workspaceId, formData);
-        setOpen(false);
-        router.push(`/w/${workspaceId}/p/${projectId}/list`);
-      } catch (err) {
-        toast.error(err instanceof Error ? err.message : "Failed to create project");
-      }
-    });
+  async function handleSubmit(formData: FormData) {
+    try {
+      setCreateStageIndex(0);
+      setCreateStage("Creating project…");
+      const projectId = await createProjectRow(workspaceId, formData);
+
+      setCreateStageIndex(1);
+      setCreateStage("Setting up your project…");
+      await createDefaultSection(workspaceId, projectId);
+
+      setCreateStageIndex(CREATE_TOTAL_STAGES);
+      setOpen(false);
+      router.push(`/w/${workspaceId}/p/${projectId}/list`);
+    } catch (err) {
+      setCreateStage(null);
+      toast.error(err instanceof Error ? err.message : "Failed to create project");
+    }
   }
 
   return (
+    <>
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger
         render={
@@ -88,5 +101,14 @@ export function NewProjectDialog({ workspaceId }: { workspaceId: string }) {
         </form>
       </DialogContent>
     </Dialog>
+
+    <ProgressOverlay
+      open={createStage !== null}
+      title="Creating…"
+      stage={createStage ?? ""}
+      stageIndex={createStageIndex}
+      totalStages={CREATE_TOTAL_STAGES}
+    />
+    </>
   );
 }

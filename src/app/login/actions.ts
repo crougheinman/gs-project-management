@@ -1,6 +1,5 @@
 "use server";
 
-import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 
 export async function signIn(formData: FormData) {
@@ -9,10 +8,9 @@ export async function signIn(formData: FormData) {
 
   const supabase = await createClient();
   const { error } = await supabase.auth.signInWithPassword({ email, password });
-
-  if (error) {
-    redirect(`/login?error=${encodeURIComponent(error.message)}`);
-  }
-
-  redirect("/");
+  if (error) throw new Error(error.message);
+  // Navigation happens client-side (see login-form.tsx) rather than via
+  // redirect() here - redirect() throws internally, and the client call site
+  // wraps this action in try/catch to toast real errors, which would
+  // otherwise catch and surface the redirect's own throw as a fake error.
 }

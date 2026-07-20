@@ -190,7 +190,7 @@ export function ListView(props: ListViewProps) {
               />
             )}
 
-            <AddSection workspaceId={workspaceId} projectId={projectId} run={run} />
+            <AddSection workspaceId={workspaceId} projectId={projectId} />
           </div>
         </div>
       </div>
@@ -242,7 +242,7 @@ function SectionGroup({
   projectId: string;
 }) {
   return (
-    <section className="mt-4">
+    <section className="mt-4 rounded-lg border border-border bg-card p-2">
       <div className="group flex items-center gap-2 px-2 py-1">
         {section ? (
           <>
@@ -294,11 +294,14 @@ function SectionGroup({
 
       <QuickAdd
         placeholder="Add task"
-        onAdd={(name) =>
-          run(() =>
-            createTask(workspaceId, projectId, { name, sectionId: section?.id ?? null }),
-          )
-        }
+        className="pl-4"
+        onAdd={async (name) => {
+          try {
+            await createTask(workspaceId, projectId, { name, sectionId: section?.id ?? null });
+          } catch (err) {
+            toast.error(err instanceof Error ? err.message : "Something went wrong");
+          }
+        }}
       />
     </section>
   );
@@ -327,7 +330,7 @@ function TaskRow({
 
   return (
     <li className="group grid grid-cols-[minmax(240px,1fr)_160px_140px_40px] items-center gap-2 border-b border-border px-2 py-1 transition-colors duration-150 hover:bg-muted/50">
-      <div className="flex min-w-0 items-center gap-2">
+      <div className="flex min-w-0 items-center gap-2 pl-4">
         <Checkbox
           checked={task.completed}
           aria-label={task.completed ? "Mark incomplete" : "Mark complete"}
@@ -425,47 +428,50 @@ function TaskRow({
 export function QuickAdd({
   placeholder,
   onAdd,
+  className,
 }: {
   placeholder: string;
-  onAdd: (name: string) => void;
+  onAdd: (name: string) => Promise<void>;
+  className?: string;
 }) {
   const [value, setValue] = useState("");
+  const [creating, setCreating] = useState(false);
 
-  function submit() {
+  async function submit() {
     const name = value.trim();
-    if (!name) return;
-    onAdd(name);
+    if (!name || creating) return;
     setValue("");
+    setCreating(true);
+    try {
+      await onAdd(name);
+    } finally {
+      setCreating(false);
+    }
   }
 
   return (
-    <div className="flex items-center gap-2 px-2 py-1">
+    <div className={cn("flex items-center gap-2 px-2 py-1", className)}>
       <Plus className="size-4 text-muted-foreground" aria-hidden="true" />
       <input
         value={value}
         placeholder={placeholder}
         aria-label={placeholder}
-        className="flex-1 rounded bg-transparent py-1 text-sm outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring"
+        disabled={creating}
+        className="flex-1 rounded bg-transparent py-1 text-sm outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
         onChange={(e) => setValue(e.target.value)}
         onKeyDown={(e) => e.key === "Enter" && submit()}
         onBlur={submit}
       />
+      {creating && <span className="text-xs text-muted-foreground">Creating…</span>}
     </div>
   );
 }
 
 // ---------------------------------------------------------------------------
 
-function AddSection({
-  workspaceId,
-  projectId,
-  run,
-}: {
-  workspaceId: string;
-  projectId: string;
-  run: (action: () => Promise<unknown>) => void;
-}) {
+function AddSection({ workspaceId, projectId }: { workspaceId: string; projectId: string }) {
   const [adding, setAdding] = useState(false);
+  const [creating, setCreating] = useState(false);
 
   if (!adding) {
     return (
@@ -476,27 +482,37 @@ function AddSection({
     );
   }
 
+  async function submit(name: string) {
+    if (!name) {
+      setAdding(false);
+      return;
+    }
+    setCreating(true);
+    try {
+      await createSection(workspaceId, projectId, name);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Something went wrong");
+    } finally {
+      setCreating(false);
+      setAdding(false);
+    }
+  }
+
   return (
-    <div className="mt-4 px-2">
+    <div className="mt-4 flex items-center gap-2 px-2">
       <Input
         autoFocus
         placeholder="Section name"
         aria-label="New section name"
+        disabled={creating}
         className="max-w-xs"
         onKeyDown={(e) => {
-          if (e.key === "Enter") {
-            const name = e.currentTarget.value.trim();
-            if (name) run(() => createSection(workspaceId, projectId, name));
-            setAdding(false);
-          }
-          if (e.key === "Escape") setAdding(false);
+          if (e.key === "Enter") submit(e.currentTarget.value.trim());
+          if (e.key === "Escape" && !creating) setAdding(false);
         }}
-        onBlur={(e) => {
-          const name = e.target.value.trim();
-          if (name) run(() => createSection(workspaceId, projectId, name));
-          setAdding(false);
-        }}
+        onBlur={(e) => submit(e.target.value.trim())}
       />
+      {creating && <span className="text-xs text-muted-foreground">Creating…</span>}
     </div>
   );
 }

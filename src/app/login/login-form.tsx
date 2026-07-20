@@ -1,17 +1,32 @@
 "use client";
 
-import { useSearchParams } from "next/navigation";
+import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { ProgressOverlay } from "@/components/progress-overlay";
 import { signIn } from "./actions";
 
 // Sign-in only. Public self-registration is disabled (single-org app) - new
 // members join via an admin invite from the Members settings page.
 export function LoginForm() {
-  const searchParams = useSearchParams();
-  const error = searchParams.get("error");
+  const router = useRouter();
+  const [signingIn, setSigningIn] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleSubmit(formData: FormData) {
+    setError(null);
+    setSigningIn(true);
+    try {
+      await signIn(formData);
+      router.push("/");
+    } catch (err) {
+      setSigningIn(false);
+      setError(err instanceof Error ? err.message : "Sign in failed");
+    }
+  }
 
   return (
     <div className="flex min-h-full flex-1 items-center justify-center bg-background p-4">
@@ -21,7 +36,7 @@ export function LoginForm() {
           <CardDescription>Sign in to your workspace.</CardDescription>
         </CardHeader>
         <CardContent>
-          <form action={signIn} className="flex flex-col gap-4">
+          <form action={handleSubmit} className="flex flex-col gap-4">
             <div className="flex flex-col gap-2">
               <Label htmlFor="email">Email</Label>
               <Input id="email" name="email" type="email" required autoComplete="email" />
@@ -42,8 +57,8 @@ export function LoginForm() {
                 {error}
               </p>
             )}
-            <Button type="submit" className="w-full">
-              Sign in
+            <Button type="submit" className="w-full" disabled={signingIn}>
+              {signingIn ? "Signing in..." : "Sign in"}
             </Button>
           </form>
           <p className="mt-4 text-center text-sm text-muted-foreground">
@@ -51,6 +66,14 @@ export function LoginForm() {
           </p>
         </CardContent>
       </Card>
+
+      <ProgressOverlay
+        open={signingIn}
+        title="Signing in…"
+        stage="Verifying your credentials…"
+        stageIndex={1}
+        totalStages={1}
+      />
     </div>
   );
 }

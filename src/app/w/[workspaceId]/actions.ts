@@ -1,6 +1,5 @@
 "use server";
 
-import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 
@@ -10,10 +9,17 @@ const ALLOWED_AVATAR_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gi
 export async function signOut() {
   const supabase = await createClient();
   await supabase.auth.signOut();
-  redirect("/login");
+  // Navigation happens client-side (see profile-menu.tsx) rather than via
+  // redirect() here - redirect() throws internally, and the client call site
+  // wraps this action in try/catch to toast real errors, which would
+  // otherwise catch and surface the redirect's own throw as a fake error.
 }
 
-export async function createProject(workspaceId: string, formData: FormData): Promise<string> {
+// Project creation is split into two actions (rather than one) so the client
+// can show real, stage-accurate progress - each function below is one
+// network round-trip, and the caller updates its UI between each `await`.
+
+export async function createProjectRow(workspaceId: string, formData: FormData): Promise<string> {
   const name = (formData.get("name") as string)?.trim();
   if (!name) throw new Error("Project name is required");
   const visibility = formData.get("visibility") === "private" ? "private" : "workspace";
@@ -36,17 +42,22 @@ export async function createProject(workspaceId: string, formData: FormData): Pr
   // Creator becomes project admin via the on_project_created DB trigger
   // (RLS would reject the first project_members row from app code).
 
+  return projectId;
+}
+
+export async function createDefaultSection(workspaceId: string, projectId: string) {
+  const supabase = await createClient();
   // Default section so the list view isn't empty.
-  await supabase
+  const { error } = await supabase
     .from("sections")
     .insert({ project_id: projectId, name: "To do", position: 1000 });
+  if (error) throw new Error(error.message);
 
   revalidatePath(`/w/${workspaceId}`);
   // Navigation happens client-side (see new-project-dialog.tsx) rather than
   // via redirect() here - redirect() throws internally, and the client call
   // site wraps this action in try/catch to toast real errors, which would
   // otherwise catch and surface the redirect's own throw as a fake error.
-  return projectId;
 }
 
 export async function updateProfile(workspaceId: string, formData: FormData) {

@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Pencil } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -23,6 +24,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { ProgressOverlay } from "@/components/progress-overlay";
 import { createClient } from "@/lib/supabase/client";
 import { signOut, updateProfile } from "@/app/w/[workspaceId]/actions";
 
@@ -45,10 +47,12 @@ export function ProfileMenu({
   fullName: string | null;
   avatarUrl: string | null;
 }) {
+  const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [profileOpen, setProfileOpen] = useState(false);
   const [passwordOpen, setPasswordOpen] = useState(false);
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
+  const [signingOut, setSigningOut] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [firstName, lastName] = splitName(fullName);
@@ -90,6 +94,17 @@ export function ProfileMenu({
     });
   }
 
+  async function handleSignOut() {
+    setSigningOut(true);
+    try {
+      await signOut();
+      router.push("/login");
+    } catch (err) {
+      setSigningOut(false);
+      toast.error(err instanceof Error ? err.message : "Failed to sign out");
+    }
+  }
+
   return (
     <>
       <DropdownMenu>
@@ -116,7 +131,7 @@ export function ProfileMenu({
             Change password
           </DropdownMenuItem>
           <DropdownMenuSeparator />
-          <DropdownMenuItem variant="destructive" onClick={() => startTransition(() => signOut())}>
+          <DropdownMenuItem variant="destructive" onClick={handleSignOut}>
             Sign out
           </DropdownMenuItem>
         </DropdownMenuContent>
@@ -201,6 +216,14 @@ export function ProfileMenu({
           </form>
         </DialogContent>
       </Dialog>
+
+      <ProgressOverlay
+        open={signingOut}
+        title="Signing out…"
+        stage="Ending your session…"
+        stageIndex={1}
+        totalStages={1}
+      />
     </>
   );
 }

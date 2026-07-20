@@ -391,9 +391,48 @@ export async function moveTask(
 
 export async function deleteTask(workspaceId: string, projectId: string, taskId: string) {
   const { supabase } = await getClient();
-  // Subtasks cascade via parent_task_id FK.
+
+  // Gather this task + its cascade (children, then grandchildren - the
+  // epic > task > subtask hierarchy rules cap nesting at two levels below
+  // any given task, so this always covers the full subtree) so their
+  // attachment files on admin/ can be cleaned up before the DB cascade
+  // deletes the rows that reference them.
+  const { data: children } = await supabase
+    .from("tasks")
+    .select("id")
+    .eq("parent_task_id", taskId);
+  const childIds = (children ?? []).map((t) => t.id);
+
+  let grandchildIds: string[] = [];
+  if (childIds.length > 0) {
+    const { data: grandchildren } = await supabase
+      .from("tasks")
+      .select("id")
+      .in("parent_task_id", childIds);
+    grandchildIds = (grandchildren ?? []).map((t) => t.id);
+  }
+
+  const allTaskIds = [taskId, ...childIds, ...grandchildIds];
+  const { data: attachmentRows } = await supabase
+    .from("attachments")
+    .select("id")
+    .in("task_id", allTaskIds);
+  const attachmentIds = (attachmentRows ?? []).map((a) => a.id);
+
+  // Subtasks (and everything else - comments, attachments rows, etc.) cascade
+  // via FK on delete cascade.
   const { error } = await supabase.from("tasks").delete().eq("id", taskId);
   if (error) throw new Error(error.message);
+
+  await Promise.all(
+    attachmentIds.map((id) =>
+      fetch(`${ADMIN_API_BASE_URL}/api/pm/attachments/${id}`, {
+        method: "DELETE",
+        headers: { "X-Pm-Key": PM_SERVICE_KEY },
+      }).catch(() => {}),
+    ),
+  );
+
   revalidatePath(projectPath(workspaceId, projectId));
 }
 
@@ -415,10 +454,29 @@ export async function createTag(
   const tagId = crypto.randomUUID();
   const { error } = await supabase
     .from("tags")
-    .insert({ id: tagId, workspace_id: workspaceId, name: trimmed });
+    .insert({ id: tagId, project_id: projectId, name: trimmed });
   if (error) throw new Error(error.message);
   revalidatePath(projectPath(workspaceId, projectId));
   return tagId;
+}
+
+export async function updateTagColor(
+  workspaceId: string,
+  projectId: string,
+  tagId: string,
+  color: string,
+) {
+  const { supabase } = await getClient();
+  const { error } = await supabase.from("tags").update({ color }).eq("id", tagId);
+  if (error) throw new Error(error.message);
+  revalidatePath(projectPath(workspaceId, projectId));
+}
+
+export async function deleteTag(workspaceId: string, projectId: string, tagId: string) {
+  const { supabase } = await getClient();
+  const { error } = await supabase.from("tags").delete().eq("id", tagId);
+  if (error) throw new Error(error.message);
+  revalidatePath(projectPath(workspaceId, projectId));
 }
 
 // ---------------------------------------------------------------------------

@@ -34,11 +34,11 @@ export async function fetchProjectTasks(supabase: SupabaseClient, projectId: str
   };
 }
 
-export async function fetchWorkspaceTags(supabase: SupabaseClient, workspaceId: string) {
+export async function fetchProjectTags(supabase: SupabaseClient, projectId: string) {
   const { data } = await supabase
     .from("tags")
-    .select("id, workspace_id, name, color")
-    .eq("workspace_id", workspaceId)
+    .select("id, project_id, name, color")
+    .eq("project_id", projectId)
     .order("name");
   return (data ?? []) as Tag[];
 }

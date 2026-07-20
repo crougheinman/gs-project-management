@@ -15,38 +15,51 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import type { CustomField, Profile } from "@/lib/types";
+import type { CustomField, Profile, Tag } from "@/lib/types";
 import type { ProjectMemberRow } from "./page";
 import { CustomFieldsConfig } from "./custom-fields-config";
+import { TagsConfig } from "./tags-config";
+import { ProgressOverlay } from "@/components/progress-overlay";
 import {
   addProjectMember,
   archiveProject,
+  cleanupProjectFiles,
+  deleteProjectRow,
+  getProjectDeletionPreview,
   removeProjectMember,
   renameProject,
+  unarchiveProject,
   updateProjectMemberRole,
 } from "./actions";
 
 const PROJECT_ROLES = ["admin", "editor", "commenter", "viewer"] as const;
+const DELETE_TOTAL_STAGES = 3;
 
 export function SettingsView({
   workspaceId,
   projectId,
   projectName,
+  projectStatus,
   members,
   workspaceMembers,
   customFields,
+  tags,
 }: {
   workspaceId: string;
   projectId: string;
   projectName: string;
+  projectStatus: string;
   members: ProjectMemberRow[];
   workspaceMembers: Pick<Profile, "id" | "full_name" | "email">[];
   customFields: CustomField[];
+  tags: Tag[];
 }) {
   const router = useRouter();
   const [, startTransition] = useTransition();
   const [addUserId, setAddUserId] = useState<string>("");
   const [addRole, setAddRole] = useState<string>("editor");
+  const [deleteStage, setDeleteStage] = useState<string | null>(null);
+  const [deleteStageIndex, setDeleteStageIndex] = useState(0);
 
   const memberIds = new Set(members.map((m) => m.user_id));
   const addable = workspaceMembers.filter((m) => !memberIds.has(m.id));
@@ -59,6 +72,39 @@ export function SettingsView({
         toast.error(err instanceof Error ? err.message : "Something went wrong");
       }
     });
+  }
+
+  async function handleDeleteProject() {
+    if (
+      !confirm(
+        `Permanently delete "${projectName}"? This deletes every task, comment, attachment, and file in this project. This cannot be undone.`,
+      )
+    ) {
+      return;
+    }
+    try {
+      setDeleteStageIndex(0);
+      setDeleteStage("Checking project…");
+      const { attachmentIds } = await getProjectDeletionPreview(projectId);
+
+      setDeleteStageIndex(1);
+      setDeleteStage("Deleting project and tasks…");
+      await deleteProjectRow(projectId);
+
+      setDeleteStageIndex(2);
+      setDeleteStage(
+        attachmentIds.length > 0
+          ? `Removing ${attachmentIds.length} attached file${attachmentIds.length === 1 ? "" : "s"}…`
+          : "Finishing up…",
+      );
+      await cleanupProjectFiles(attachmentIds);
+
+      setDeleteStageIndex(DELETE_TOTAL_STAGES);
+      router.push(`/w/${workspaceId}`);
+    } catch (err) {
+      setDeleteStage(null);
+      toast.error(err instanceof Error ? err.message : "Failed to delete project");
+    }
   }
 
   return (
@@ -99,6 +145,7 @@ export function SettingsView({
             <div className="flex items-center gap-1">
               <Select
                 value={member.role}
+                disabled={member.role === "admin"}
                 onValueChange={(role) =>
                   role &&
                   run(() => updateProjectMemberRole(workspaceId, projectId, member.user_id, role))
@@ -119,9 +166,16 @@ export function SettingsView({
                 variant="ghost"
                 size="icon-sm"
                 aria-label={`Remove ${member.profiles?.email} from project`}
-                onClick={() =>
-                  run(() => removeProjectMember(workspaceId, projectId, member.user_id))
-                }
+                disabled={member.role === "admin"}
+                onClick={() => {
+                  if (
+                    confirm(
+                      `Remove ${member.profiles?.full_name || member.profiles?.email} from this project?`,
+                    )
+                  ) {
+                    run(() => removeProjectMember(workspaceId, projectId, member.user_id));
+                  }
+                }}
               >
                 <Trash2 aria-hidden="true" />
               </Button>
@@ -186,20 +240,49 @@ export function SettingsView({
 
       <Separator className="my-6" />
 
-      <Button
-        variant="outline"
-        className="text-destructive"
-        onClick={() => {
-          if (confirm(`Archive project "${projectName}"? It disappears from the dashboard.`)) {
-            run(async () => {
-              await archiveProject(workspaceId, projectId);
-              router.push(`/w/${workspaceId}`);
-            });
-          }
-        }}
-      >
-        Archive project
-      </Button>
+      <TagsConfig workspaceId={workspaceId} projectId={projectId} tags={tags} />
+
+      <Separator className="my-6" />
+
+      {projectStatus === "archived" ? (
+        <div className="flex flex-col items-start gap-2">
+          <p className="text-sm text-muted-foreground">This project is archived.</p>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              variant="outline"
+              onClick={() => run(() => unarchiveProject(workspaceId, projectId))}
+            >
+              Unarchive project
+            </Button>
+            <Button variant="outline" className="text-destructive" onClick={handleDeleteProject}>
+              Permanently delete project
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <Button
+          variant="outline"
+          className="text-destructive"
+          onClick={() => {
+            if (confirm(`Archive project "${projectName}"? It disappears from the dashboard.`)) {
+              run(async () => {
+                await archiveProject(workspaceId, projectId);
+                router.push(`/w/${workspaceId}`);
+              });
+            }
+          }}
+        >
+          Archive project
+        </Button>
+      )}
+
+      <ProgressOverlay
+        open={deleteStage !== null}
+        title="Deleting…"
+        stage={deleteStage ?? ""}
+        stageIndex={deleteStageIndex}
+        totalStages={DELETE_TOTAL_STAGES}
+      />
     </div>
   );
 }

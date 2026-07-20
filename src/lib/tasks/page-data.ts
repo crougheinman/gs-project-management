@@ -8,7 +8,7 @@ import type {
   Profile,
   TaskDependency,
 } from "@/lib/types";
-import { fetchProjectTasks, fetchWorkspaceTags } from "./queries";
+import { fetchProjectTags, fetchProjectTasks } from "./queries";
 
 export type ProjectPageData = Awaited<ReturnType<typeof fetchProjectPageData>>;
 
@@ -30,7 +30,7 @@ export async function fetchProjectPageData(
     dependenciesRes,
   ] = await Promise.all([
     fetchProjectTasks(supabase, projectId),
-    fetchWorkspaceTags(supabase, workspaceId),
+    fetchProjectTags(supabase, projectId),
     supabase
       .from("project_members")
       .select("profiles(id, email, full_name, avatar_url)")

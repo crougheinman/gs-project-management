@@ -42,7 +42,7 @@ export type Task = {
 
 export type Tag = {
   id: string;
-  workspace_id: string;
+  project_id: string;
   name: string;
   color: string | null;
 };
