@@ -20,7 +20,9 @@ export function LoginForm() {
     setError(null);
     setSigningIn(true);
     try {
-      await signIn(formData);
+      // Sign-in usually resolves in well under a blink; wait for a minimum
+      // visible duration too so the overlay doesn't flash imperceptibly.
+      await Promise.all([signIn(formData), new Promise((r) => setTimeout(r, 400))]);
       router.push("/");
     } catch (err) {
       setSigningIn(false);
